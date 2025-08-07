@@ -1,3 +1,8 @@
+############# Standard Python Gitignore ####################
+
+# This include sage compiled files as well!
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
