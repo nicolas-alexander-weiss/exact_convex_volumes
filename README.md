@@ -14,3 +14,7 @@ Volumes of p-balls and their intersections. This is a project of [Lakshmi Ramesh
 ### Setting up a virtual environment
 
 **Todo:** Add requirements file and info on installation.
+
+## Some open Todos
+
+- Automatically add a square sampling region for the intersection of shifted L_p balls.
