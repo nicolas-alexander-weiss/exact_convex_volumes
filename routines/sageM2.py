@@ -39,6 +39,12 @@ def eliminateM2(I, varNames):
     eliminatedIdeal = m2ideal.eliminate("{" + varNames + "}") 
     return eliminatedIdeal.sage()
 
+
+
+
+
+
+# TODO: If f lives in a ring of the form $QQ(t)[x0,...,x_n]$ we have to manually construct the M2 object.
 def branchIdeal(f, projectedVar):
     """
     Input
@@ -61,6 +67,11 @@ def branchIdeal(f, projectedVar):
     I = branchIdeal(f,x); I 
     """
     R = f.parent()
+
+    # Currently, this handles R = QQ[x0,..., xn], but not base_ring being a fraction field.
+    if not base_ring(R) == QQ:
+        raise TypeError("Currently can handle only polynomial f over QQ")
+
     fiberVars = [g for g in gens(R) if g != projectedVar]; 
 
     # Construct ideal of branch points in V(f)
