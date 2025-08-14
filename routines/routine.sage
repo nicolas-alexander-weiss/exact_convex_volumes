@@ -2,6 +2,29 @@ sys.path.insert(0, '/Users/lakshmiramesh/Desktop/ore_algebra/src')
 import ore_algebra
 from ore_algebra import *
 def volume_intersection(dim, p, translation_vectors): #assume that dim > 1, p>1 even, translation vectors give non-empty intersection!
+    """ Computes the volume of the intersection of L_p balls shifted by translation_vectors in RR^dim. 
+
+    Input
+    -----
+    dim : integer dimension of ambient space
+    p : integer, assumed even.
+    translation_vectors : list of vectors in QQ^dim
+
+    Output
+    ------
+    The volume of the intersection of the translated L_p balls as a fixed precision real number.
+
+    Example
+    -----
+    
+    dim = 2
+    p = 4
+    translation_vectors = [(0,0), (1,0)]
+    
+    vol = volume_intersection(dim,p,translation_vectors)  # 1.71448285904485523624162985240570841916093...
+
+    """
+    
     k = len(translation_vectors)
     Rt = PolynomialRing(ZZ, dim+1, 'x') #note that xdim+1 is t
     f = Rt(1)
