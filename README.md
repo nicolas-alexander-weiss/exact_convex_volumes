@@ -10,6 +10,7 @@ Volumes of p-balls and their intersections. This is a project of [Lakshmi Ramesh
 - Python3:
   - Numpy
   - ore_algebra 
+- Macaulay2
 
 ### Setting up a virtual environment
 
