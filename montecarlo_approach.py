@@ -13,7 +13,14 @@ from fractions import Fraction
 import numpy as np
 
 
+
+
 MAX_BATCH_SIZE = 100000
+
+STD_NUM_SAMPLES = 1000*1000
+STD_BATCH_SIZE = 1000*100
+STD_SEED = 12345
+
 
 #
 # (vectorized) helper functions:
@@ -84,7 +91,7 @@ def montecarlo_support(n, ind_funs, center_box, radius_box, num_samples, batch_s
 # Application to unit ball:
 #
 
-def compute_volume_unit_ball_batched(n, p, num_samples, batch_size, seed):
+def compute_volume_unit_ball_batched(n, p, num_samples=STD_NUM_SAMPLES, batch_size=STD_BATCH_SIZE, seed=STD_SEED):
     """ Computes the volume of the L_p unit ball in n-dim space.
     Uniformly samples points in the [-1, +1]^n hyper cube and returns the 
     ratio of points inside the ball multiplied by the volume of the hypercube (2^n)
@@ -126,7 +133,7 @@ def intersection_of_k_Lp_n_balls(n,p,centers, center_box, radius_box, num_sample
 
     # Set up the indicator functions
     ind_funcs = [
-        lambda xvec : p_norm_squared(xvec - mu, p) <= 1 for mu in centers
+        lambda xvec, shift=mu : p_norm_squared(xvec - shift, p) <= 1 for mu in centers
     ]
 
     # Compute volume
@@ -137,10 +144,6 @@ def intersection_of_k_Lp_n_balls(n,p,centers, center_box, radius_box, num_sample
 
 ###### Example computations ############
 
-STD_NUM_SAMPLES = 1000*1000
-STD_BATCH_SIZE = 1000*100
-STD_SEED = 12345
-
 def intersection_L_p_n_balls_shifted_by_basis_vectors(n,p,k, num_samples=STD_NUM_SAMPLES, batch_size=STD_BATCH_SIZE, seed = STD_SEED):
     # Takes L_p balls centered at 0 and the first k basis vectors.
     
@@ -148,11 +151,12 @@ def intersection_L_p_n_balls_shifted_by_basis_vectors(n,p,k, num_samples=STD_NUM
 
     centers = np.vstack((np.zeros(n,),np.identity(n)[:k])) # The origin and the first k basis vectors in n dims.
 
-    # Set up sampling region (This is just [0,1]^n with the center point at (..,1/2,..))
-    center_box = 1/2 * np.ones((n,))
-    radius_box = 1/2
+    # Set up sampling region: Since one of the balls is centered at 0, that box suffices.    --- (This is just [0,1]^n with the center point at (..,1/2,..))
+    center_box = np.zeros((n,))
+    radius_box = 1
 
     vol = intersection_of_k_Lp_n_balls(n, p, centers, center_box, radius_box, num_samples, batch_size, seed)
+            
 
     print("The volume of {} L(p={},n={}) shifted by 0 and the first {} basis vectors is:\n {}".format(
         k, p, n, k, vol
@@ -169,12 +173,12 @@ def previous_examples(num_samples, batch_size, seed):
 
     # exact_volume = 4/3 * np.pi
     
-    approximated_volume = compute_volume_unit_ball_batched(n, p, num_samples, batch_size, seed) 
-    #    compute_volume_unit_ball_parallel(n,p,num_samples,seed)
+    # approximated_volume = compute_volume_unit_ball_batched(n, p, num_samples, batch_size, seed) 
+    # #    compute_volume_unit_ball_parallel(n,p,num_samples,seed)
         
-    print("(n,p) = ({},{})".format(n,p))
-    # print("{} <- exact volume".format(exact_volume))
-    print("{} <- approximated volume of unit L_p ball in R^n".format(approximated_volume))
+    # print("(n,p) = ({},{})".format(n,p))
+    # # print("{} <- exact volume".format(exact_volume))
+    # print("{} <- approximated volume of unit L_p ball in R^n".format(approximated_volume))
     
     # After shifting the box (should get e.g. half the volume)
 
@@ -211,6 +215,8 @@ def previous_examples(num_samples, batch_size, seed):
     print("Volume of B intersected with B + t*x: {}".format(volume_intersection_two_balls))
     print("--> t = {} and x = {}".format(t,x))
 
+    print("Similarly: {}".format(montecarlo_support(n, [lambda xvec : p_norm_squared(xvec, p) <= 1,lambda xvec : p_norm_squared(xvec - x, p) <= 1], 0, radius_box, num_samples, batch_size, seed)))
+
     print("")
     # print("When taking the box around the center of the shifted ball, it shouldnt change: {}".format(
     #     montecarlo_support(n, 
@@ -226,5 +232,6 @@ def previous_examples(num_samples, batch_size, seed):
 
 
 if __name__ == "__main__":
-    intersection_L_p_n_balls_shifted_by_basis_vectors(n=3,p=4,k=3)
-    
+    intersection_L_p_n_balls_shifted_by_basis_vectors(n=2,p=4,k=1)
+    previous_examples(1000000, 10000, 12345)
+
