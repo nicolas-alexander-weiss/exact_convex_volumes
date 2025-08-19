@@ -13,7 +13,7 @@ def shifted_lp_poly(Rt, p, mu):
         
 
 
-def volume_intersection(dim, p, translation_vectors): #assume that dim > 1, p>1 even, translation vectors give non-empty intersection!
+def volume_intersection(dim, p, translation_vectors, precis): #assume that dim > 1, p>1 even, translation vectors give non-empty intersection!
     """ Computes the volume of the intersection of L_p balls shifted by translation_vectors in RR^dim. 
 
     Input
@@ -21,6 +21,7 @@ def volume_intersection(dim, p, translation_vectors): #assume that dim > 1, p>1 
     dim : integer dimension of ambient space
     p : integer, assumed even.
     translation_vectors : list of vectors in QQ^dim
+    precis : integer precision digits
 
     Output
     ------
@@ -42,6 +43,8 @@ def volume_intersection(dim, p, translation_vectors): #assume that dim > 1, p>1 
     Ft = Rt.fraction_field()    
     Wt = OreAlgebra(Ft, *[("Dx" + str(i), {}, {"x" + str(i) : 1}) for i in range(0, dim+1, 1)])
     
+    # create complex ring for creative telescoping and real ring for precision 
+    # 
 
     # make the polynomial ft = f1*...*fk - t
     ft = Rt(1)
@@ -50,7 +53,7 @@ def volume_intersection(dim, p, translation_vectors): #assume that dim > 1, p>1 
 
     ft = ft - Rt.gens()[-1]
 
-    At = Ft(y*ft.derivative(Rt.gens()[0])/ft) # differentiat by x0. this means we always telescope wrt x1 first.  
+    At = Ft(y*ft.derivative(Rt.gens()[0])/ft) # differentiat by x0. this means we always telescope wrt x0 first.  
     annt = Wt.ideal([At*D-D(At) for D in Wt.gens()])
 
     # telescope to get Picard-Fuchs in xdim+1  (i.e. eliminate all variables but the last one)
@@ -60,7 +63,7 @@ def volume_intersection(dim, p, translation_vectors): #assume that dim > 1, p>1 
     order0 = ct0[0].order()
 
     # CHOOSE SLICES 
-    max0 = QQ[Rt.gens()[dim+1]](ct0[0].leading_coefficient()).roots(QQbar, multiplicities=False)
+    max0 = QQ[Rt.gens()[dim+1]](ct0[0].leading_coefficient()).roots(RB, multiplicities=False)
     # TODO : Find the t0 smallest positive, real critical value and choose order0-1 many points between 0 and  t0
     # L0 = [...] values of x0 for slices!
 
@@ -75,32 +78,37 @@ def volume_intersection(dim, p, translation_vectors): #assume that dim > 1, p>1 
     return final_volume
 
 
-def smooth_volume(j, point, f1, dim):
+def smooth_volume(j, point, f1, dim, RB):
     R = PolynomialRing(ZZ, dim-j, 'x') #Note that now, x0 = x, x1 = y, ...
     F = R.fraction_field()    
     W = OreAlgebra(F, *[("Dx" + str(i), {}, {"x" + str(i) : 1}) for i in range(0, dim-j, 1)])
     # TODO
-    f = None
-    #f = F(f1(R.gens()[j] = QQ(point))) #i hope this is correct
+    # f = None
+    f = F(f1(R.gens()[dim - j] = QQ(point))) 
     A = F(y*f.derivative(R.gens()[0])/f)
     ann = W.ideal([A*D-D(A) for D in W.gens()])
     ct = ann.ct(W.gens()[0], certificates=False)
-    if j == dim-1:
+    if j == dim-2:
         # do nothing
         pass
     else:
-        for k in range(1,dim-j):
+        for k in range(1,dim-j-1):
             ct = ct[0].parent().ideal(ct).ct(W.gens()[k], certificates=False)
-    L = QQ[R.gens()[dim-j]](ct[0].leading_coefficient()).roots(QQbar, multiplicities=False)
+    L = QQ[R.gens()[dim-j]](ct[0].leading_coefficient()).roots(RB, multiplicities=False)
     # TODO kick out unwanted critical points
     initial_conditions = []
     for i in len(L):
-        if j == dim-1: 
+        if j == dim-2: 
             # TODO actually compute a volume 
-            pass
+            # here we must use our conjecture.
+            f = f(R.gens()[dim - j] = L[i])
+            # we select the middle two points
+            roots = (QQ[R.gens()[0]](f)).roots(RB, multiplicities=False)
+            len_roots = len(roots) + 1 # this should be even
+            slice_vol = roots[len_roots/2] - roots[len_roots/2 - 1]
         else:
-            somthing = smooth_volume(j+1, L[i], f, dim)
-            initial_conditions.append(somthing)
+            slice_vol = smooth_volume(j+1, L[i], f, dim)
+            initial_conditions.append(slice_vol)
 
     # TODO use the initial conditions to compute the volume of this slice. 
     return volume        
