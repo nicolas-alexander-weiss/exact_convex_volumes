@@ -13,12 +13,11 @@ def shifted_lp_poly(Rt, p, mu):
         
 
 
-def volume_intersection(dim, p, translation_vectors, precis): #assume that dim > 1, p>1 even, translation vectors give non-empty intersection!
+def volume_intersection(p, translation_vectors, precis): #assume that dim > 1, p>1 even, translation vectors give non-empty intersection!
     """ Computes the volume of the intersection of L_p balls shifted by translation_vectors in RR^dim. 
 
     Input
     -----
-    dim : integer dimension of ambient space
     p : integer, assumed even.
     translation_vectors : list of vectors in QQ^dim
     precis : integer precision digits
@@ -30,14 +29,13 @@ def volume_intersection(dim, p, translation_vectors, precis): #assume that dim >
     Example
     -----
     
-    dim = 2
     p = 4
     translation_vectors = [(0,0), (1,0)]
     
     vol = volume_intersection(dim,p,translation_vectors)  # 1.71448285904485523624162985240570841916093...
 
     """
-    
+    dim = len(translation_vectors[0])
     k = len(translation_vectors)
     Rt = PolynomialRing(ZZ, 'x', dim+1) # note that xdim+1 is t, i.e. Rt.gens()[-1] or Rt.gens()[xdim]
     Ft = Rt.fraction_field()    
@@ -63,18 +61,20 @@ def volume_intersection(dim, p, translation_vectors, precis): #assume that dim >
     order0 = ct0[0].order()
 
     # CHOOSE SLICES 
-    max0 = QQ[Rt.gens()[dim+1]](ct0[0].leading_coefficient()).roots(RB, multiplicities=False)
-    # TODO : Find the t0 smallest positive, real critical value and choose order0-1 many points between 0 and  t0
-    # L0 = [...] values of x0 for slices!
+    max0 = QQ[Rt.gens()[dim+1]](ct0[0].leading_coefficient()).roots(RB, multiplicities=False) #what is RB
+    # TODO : Find the t0 smallest positive, real critical value and choose order0 many points between 0 and  t0
+    # L0 = [...] values of x0 for slices! 
+    # Check if L0 is a good set - it should give an invertible matrix. before or after computing volumes? 
 
-    # now we compute order0 - 1 volumes of x0-slices. 
+    # now we compute order0 volumes of x[dim]-slices. 
     x0_volumes = []
-    for i in range(0,7):
+    for i in range(0,order0):
         # smooth algorithm begins here
         j=0
-        something = smooth_volume(j,L[i],f,dim)
+        # f = ft(R.gens()[dim] = L[i]) #evaluate it before calling!!
+        something = smooth_volume(j,L[i],ft,dim,RB)
         x0_volumes.append(something)
-    # analytically continue to get volume at x0 = 0
+    # analytically continue to get volume at x[dim] = 0
     return final_volume
 
 
@@ -84,7 +84,7 @@ def smooth_volume(j, point, f1, dim, RB):
     W = OreAlgebra(F, *[("Dx" + str(i), {}, {"x" + str(i) : 1}) for i in range(0, dim-j, 1)])
     # TODO
     # f = None
-    f = F(f1(R.gens()[dim - j] = QQ(point))) 
+    f = F(f1(R.gens()[dim - j] = QQ(point))) #can't evaluate here!!
     A = F(y*f.derivative(R.gens()[0])/f)
     ann = W.ideal([A*D-D(A) for D in W.gens()])
     ct = ann.ct(W.gens()[0], certificates=False)
@@ -94,20 +94,22 @@ def smooth_volume(j, point, f1, dim, RB):
     else:
         for k in range(1,dim-j-1):
             ct = ct[0].parent().ideal(ct).ct(W.gens()[k], certificates=False)
-    L = QQ[R.gens()[dim-j]](ct[0].leading_coefficient()).roots(RB, multiplicities=False)
+    ord = ct[0].order()
+    L = QQ[R.gens()[dim-j-1]](ct[0].leading_coefficient()).roots(RB, multiplicities=False)
     # TODO kick out unwanted critical points
     initial_conditions = []
-    for i in len(L):
+    slice_values = #find ord+1 slices
+    for i in ord+1:
         if j == dim-2: 
             # TODO actually compute a volume 
             # here we must use our conjecture.
-            f = f(R.gens()[dim - j] = L[i])
+            f = f(R.gens()[dim - j] = slice_values[i])
             # we select the middle two points
             roots = (QQ[R.gens()[0]](f)).roots(RB, multiplicities=False)
             len_roots = len(roots) + 1 # this should be even
             slice_vol = roots[len_roots/2] - roots[len_roots/2 - 1]
         else:
-            slice_vol = smooth_volume(j+1, L[i], f, dim)
+            slice_vol = smooth_volume(j+1, slice_values[i], f, dim, RB)
             initial_conditions.append(slice_vol)
 
     # TODO use the initial conditions to compute the volume of this slice. 
