@@ -4,6 +4,9 @@
 load("routine.sage")
 load("sageM2.sage")
 
+from scipy.optimize import *
+import numpy as np
+
 def test0():
     """ Build the lp poly centered at zero and test that the unit vectors are contained
         in the lp ball.   
@@ -106,6 +109,134 @@ def test7():
 
     assert(vol > 0 and vol < sqrt(2)) # Check the obvious bounds for the line width could be.
 
+def test8():
+    """ Test branch point computation.
+    """
+    R = PolynomialRing(QQ, "x", 2)
+    x = R.gens()
+    f = x[0]^2 + x[1]^2 - 1
+    proj_var = x[1]
+    # Projection onto x[1] axis, with branchpoints (0, +- 1)
+    bpoints = branch_points(f, proj_var) 
+
+    assert(len(bpoints) == 2)
+    assert(all([point[x[0]]==0 and ( point[x[1]] == 1 or point[x[1]] == -1) for point in bpoints]))
+
+def test9():
+    """ Test the computation of real branch points of the deformed intersection. 
+    Should compute the real branch points, or rather their value, when the branchpoint lies
+    within the intersection of all lp balls.
+
+    # TODO: No assertion so far, but to check that it runs without errors.
+    """
+    n = 2
+    p = 4
+
+    R = PolynomialRing(QQ, "x", n)
+    mus = [[QQ(0), QQ(0)], [QQ(1),QQ(0)], [QQ(0), QQ(1)]]
+    fs = [shifted_lp_poly(R, p, mu) for mu in mus]
+
+    def_value = QQ(0.1)
+    proj_var = R.gens()[1]
+
+    f = eval_poly(deformed_product(fs), [def_value])
+
+    # Below doesn't really terminate.
+
+    # crit_val = project_deformed_intersection(fs, def_value, proj_var, var_value_pairs={})
+
+    # print(crit_val)
+
+    # RMK: 2025-10-18: Doesn't terminate in reasonable time. Should solve just numerically, with fixed precision. (the precision we need.)
+    # Would be much better to do this via something similar to 
+
+    # Numerical instead:
+    # --> For example with Lasser's "Hierarchy of relaxation"
+
+    # Without thinking, too much, start with the scipy optimizer first.
+    # So we want to optimize proj_var given that f >= 0 and f_1, ..., f_m >=0. I.e. this way we stay in the intersection.
+
+    # Can provide all the non-linear constraints:
+    symbolic_functions = [poly.base_extend(SR) for poly in [f]+fs]
+    constraints = [NonlinearConstraint(lambda x, y=fnc:y(x0=x[0], x1=x[1]), lb=0, ub=np.inf, jac=lambda x,y=fnc:np.array([y.gradient()[0](x0=x[0],x1=x[1]),y.gradient()[1](x0=x[0],x1=x[1])])) for fnc in symbolic_functions]
+
+    start_point = (0.5,0.5) # Should already be in the semi-algebraic set!
+    #obj_fun = lambda x : x[0]
+
+    # And use BFGS, though need to add the correct gradient as information.
+
+    res_min = minimize(lambda x : x[0], start_point, constraints=constraints)
+    # And if we want to maximize, we simply take "-minimize(-obj_fun,...)"
+    # print(res_min.success, res_min.fun, res_min.message)
+
+    res_max = minimize(lambda x : -x[0], start_point, constraints=constraints)
+    # print(res_max.success, res_max.fun, res_max.message)
+
+    # SOMETHING BREAKS ABOVE IF I LET BOTH MINIMIZERS RUN...
+
+    # obj_fun = lambda x : -x[0]
+    # res_max = minimize(obj_fun, start_point, constraints=[NonlinearConstraint(lambda x, y=fnc:y(x0=x[0], x1=x[1]), lb=0, ub=np.inf) for fnc in symbolic_functions])
+    # print(res_max)
+    # Issue: Will have to sample a point in the region of interest.
+
+
+    # Should talk with someone who has more experience: Lorenzo Baldi !!
+    # (This would be much more effective than trying to set something up myself.)
+
+    # TODO: Next: Reach out to Lorenzo. And besides that, implement the other steps involving the ore_algebra and solving.
+    # Then run it step by step through our basic example that had worked out correctly.
+
+
+def test10():
+    """ Test the construction of the integrand in a basic example.
+    """
+    n = 2
+    p = 4
+    R = PolynomialRing(QQ, "x", n)
+    x = R.gens()
+
+    fs = [shifted_lp_poly(R, p, [0,0])]
+    
+    def_value = 0
+    var_value_pairs = {}
+    proj_var = x[0]
+    A = construct_integrand(fs, def_value, var_value_pairs,proj_var)
+    assert(A == (-4*x[1]^4)/(-x[0]^4 - x[1]^4 + 1))
+
+def test11():
+    """ Test the construction of the rational Weyl algebra.
+    """
+    S = PolynomialRing(QQ, "x", 2)
+    x = S.gens()
+    W = rational_weyl_algebra(S)
+    d = W.gens()
+
+    assert(d[0] * x[0] == x[0]*d[0] + 1)
+    # print(W)
+    # print(d[0] * x[0])
+
+def test12():
+    """ Test the get Picard Fuchs:
+    """
+    n = 2
+    p = 4
+    S = PolynomialRing(QQ, "x", n)
+    x = S.gens()
+
+    fs = [shifted_lp_poly(S, p, [0,0])]
+    deform_value = 0
+    var_value_pairs = {}
+    proj_var = S.gens()[0]
+
+    
+    W = rational_weyl_algebra(S)
+    d = W.gens()
+
+    P = get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy=None)
+    
+    # Computed this before:
+    assert(P == (-x[0]^4 + 1)*d[0] + (x[0]^3))
+
 if __name__ == "__main__":
     test0()
     test1()
@@ -115,3 +246,8 @@ if __name__ == "__main__":
     test5()
     test6()
     test7()
+    test8()
+    test9()
+    test10()
+    test11()
+    test12()

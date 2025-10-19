@@ -2,6 +2,9 @@
 import ore_algebra
 from ore_algebra import *
 
+from scipy import optimize
+
+
 # Global parameters
 
 NUM_BITS_PRECISION = 20 # i.e. Precision of 1 / 2^NUM_BITS_PRECISION.
@@ -30,7 +33,7 @@ def eval_poly(f, var_values):
     phi = f.parent().hom(var_values, f.parent().base_ring())
     return phi(f)
 
-def partial_eval_poly(f, var_value_pairs):
+def partial_eval_poly(f, var_value_pairs, infer_target_base_ring=False):
     """ Evaluate f at the given var value pairs. 
 
     Input
@@ -46,15 +49,22 @@ def partial_eval_poly(f, var_value_pairs):
     Caveat
     ----
         It seems variables in sage are hashable and thus can be used as a dictionary key.
+
+    TODO
+    ----
+        Infer the target ring type from the var_value_pairs. Else might fail, if first variable value is not specified.
     """
     # Build an "evaluation vector" which keeps the non-specified variables in place.
     R = f.parent()
     images = [var_value_pairs[x] if x in var_value_pairs.keys() else x for x in R.gens()]
+    assert(len(images) >= 0)
 
     unspecified_vars = [x for x in R.gens() if x not in var_value_pairs.keys()]
 
     # Define the evaluation map. Note the * operator unpacks the variables into the polynomial ring constructor.
-    phi = R.hom(images, R.base_ring()[*unspecified_vars])
+    # TODO: The target base_ring has to be infered from the var_value pairs!!
+    target_base_ring = images[0].base_ring() if infer_target_base_ring else R.base_ring()
+    phi = R.hom(images, target_base_ring if len(unspecified_vars) == 0 else target_base_ring[*unspecified_vars])
 
     return phi(f)
 
@@ -167,14 +177,16 @@ def identify_real_roots(f, prec=NUM_BITS_PRECISION, force_real=False):
     real_roots = [(root[0].real() if force_real else root[0])  for root in all_roots if abs(root[0].imag()) < 2^(-prec)]
     return real_roots
 
-def branch_points(f, proj_var):
-    """ Computes all the branch points, i.e. points on V(f) over CC, relative
+def branch_points(f, proj_var, field=QQbar, identify_real=False, prec=NUM_BITS_PRECISION):
+    """ Computes all the branch points, i.e. points on V(f) over QQbar, unless other field provided, relative
         to the projection onto the proj_var-axis.
 
         The branch points are the solutions to the ideal 
             I = (f) + ( diff(f, x_i) | x_i != proj_var).
         
-        The solutions are computed over CC.
+        The solutions are computed over QQbar. 
+        Note: If the coefficients of f are in QQ, then all solutions
+        are in QQbar [REF]
     
     Input
     ------
@@ -185,22 +197,40 @@ def branch_points(f, proj_var):
     ------
         A representation of the branchpoints.
     """
-    pass
+    R = f.parent()
 
-def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs):
+    I = R.ideal([f] + [diff(f, x) for x in R.gens() if not (x == proj_var)])
+
+    # Now solve the ideal, assuming it is just a collection of points.
+    # TODO: Can essentially remove the the assertion, as it will be necessarily true. Why?
+    assert(I.dimension() == 0)
+
+    variety = I.variety(field)
+
+    if identify_real:
+        # TODO: Later test, if abs does slow down. Can just replace by "and" of the two comparisons then.
+        # TODO: Perhaps solving over AlgReal might be better?
+        return [point for point in variety if all([abs(point[key].imag()) < 2^(-prec) for key in point.keys()])]
+    else:
+        return variety
+
+def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION):
     """ Computes the minimum and maximum value that proj_var takes on the deformed volume_intersection,
     after restricting to the chosen var_value_pairs.
 
     Input
     -------
-        fs : A list of multivariate polynomials
+        fs              : A list of multivariate polynomials
+        def_value       : In QQ, value by which the product is deformed.
+        proj_var        : The variable, such that we project onto the proj_var-axis.
+        var_value_pairs : The values already restricted to.
 
     Output
     -------
         An interval representing the [min, max] value of proj_var on the deformed intersection.
     
         This can be done in terms of computing real branch_points lieing on the boundary 
-        of the deformed intersection. However, here we will use semi-definite programming.
+        of the deformed intersection and then projecting onto proj_var.
 
     Caveat
     -------
@@ -208,9 +238,106 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs):
         The "deformed semi-algebraic set" refers to the connected component of {prod(f) - t >= 0}
         that lies within the "intersection".
 
-    """
-    pass
 
+    TODO
+    -----
+        - Check how fast this is in practice. And if there is a better way with numerical optimization 
+            techniques, given that our set of interest is convex [proof].   
+    """
+    
+    # Compute all "real" branch points 
+    fdef = partial_eval_poly(eval_poly(deformed_product(fs), [def_value]), var_value_pairs)
+    real_branch_points = branch_points(fdef, proj_var, identify_real=True, prec=prec)       # TODO Issue: Already for small example, solving over QQbar takes for ever!!!
+    # Now identify the branchpoints satisfying f >= 0 for all f in fs:
+    inside_branch_points = [point for point in real_branch_points if all([partial_eval_poly(f, to_real(point), infer_target_ring=True) >=0 for f in fs ])]
+    
+    # Now return only the proj_var values 
+    # TODO: Split this actually into two functions, so that one can utitilize the computed branch_points if in interest.
+    return [{proj_var:point[proj_var]} for point in inside_branch_points]
+
+
+def get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy=None):
+    """ Computes the Picard Fuchs operator for 
+    Vol(proj_var) = Vol( p^{-1}(proj_var) \cap {fs \geq 0 forall s} \cap slice(var_value_pairs)).
+
+    Input
+    ------
+    fs              : Polynomials defining semi-alg set (by fs >= 0)
+    deform_value    : Value in QQ, by which to smooth prod(fs).
+    var_value_pairs : defining slice to restrict to.
+
+    Output
+    ------
+    P : Picard Fuchs operator, in WeylAlgebra D_{proj_var}
+
+    TODO
+    -----
+    Make the procedure by which to compute the intersection ideal more informed.
+    """
+
+    # Construct the integrand
+    A = construct_integrand(fs, deform_value, var_value_pairs, proj_var)
+    
+    W = rational_weyl_algebra(A.parent().ring())
+
+    annA = W.ideal([A*D-D(A) for D in W.gens()]) # construct the annihilating ideal
+
+    # To be precise, below we simply construct some subset of the integration ideal, 
+    # but it suffices to be non-empty.
+    intIdeal = creative_telescoping(annA, proj_var)
+
+    return intIdeal.gens()[0]
+
+def construct_integrand(fs, deform_value, var_value_pairs, proj_var):
+    """ By standard considerations, see for example our paper, the function 
+    vol(proj_var) can be expressed as period of a rational function A. 
+    We construct this function rational function here, considering  closely the order of indeterminate variables
+    and the proj var.
+
+    Input
+    ------
+    See get_picard_fuchs()
+
+    Output
+    -----
+    A : Element of a FractionField. (TODO: Specify more clearly the variables.)
+    """
+
+ 
+    fdef = partial_eval_poly(eval_poly(deformed_product(fs), [deform_value]), var_value_pairs)
+
+    prim_var = [var for var in fdef.parent().gens() if not var == proj_var][0] # TODO: Here taking the first, should make this more strategic here.
+    
+    sgn = (-1)^0 # TODO: Should depend on the choice of prim_var, to account for ordering.
+
+    A = sgn * diff(fdef, prim_var) * prim_var / fdef # Automatically constructs the fraction field.
+
+    return A
+
+def rational_weyl_algebra(polyRing):
+    """ Constructs the rational Weyl algebra for a specified polynomial ring.
+    """
+    fracField = polyRing.fraction_field()
+
+    return OreAlgebra(fracField, *[("D" + str(var), {}, {str(var) : 1}) for var in polyRing.gens()])
+
+def creative_telescoping(I, proj_var):
+    """ For an ideal in the rational Weyl algebra W, it carries out creative telescoping
+    sequentially to eliminate all but proj_var.
+
+    The result is an ideal contained in:     (I + dx_1 * D + ...+ dx_n *D) \cap D_x0
+    (In this example we assume x0 to be the proj_var)
+
+    TODO
+    ------
+    Should extend this, so that at least temporarily we store / output for debuginfo the certificates, too.
+    """
+    W = I.ring()
+    ct_ideal = I
+    for Dvar in [Dvar for Dvar in W.gens() if not Dvar == W("D"+str(proj_var))]:
+        ct_ideal = W.ideal(ct_ideal.ct(Dvar, certificates=False))
+    
+    return ct_ideal
 
 # def volume_intersection(p, translation_vectors, precis): #assume that dim > 1, p>1 even, translation vectors give non-empty intersection!
 #     """ Computes the volume of the intersection of L_p balls shifted by translation_vectors in RR^dim. 
