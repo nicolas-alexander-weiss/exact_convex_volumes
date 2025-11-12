@@ -308,6 +308,13 @@ def test15():
     
     # Finishes, but takes a while!
 
+def test16():
+    """ Add a test that checks the computation of the "inside branch_points"
+    """
+
+    pass
+
+
 
 if __name__ == "__main__":
     test0()
@@ -326,3 +333,4 @@ if __name__ == "__main__":
     test13()
     test14()
     test15()
+    test16() # TODO Fill details!

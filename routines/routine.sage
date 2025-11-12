@@ -167,8 +167,8 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
     return real_values[num_roots // 2] - real_values[num_roots // 2 - 1]
 
 
+# TODO: Below function is obsolete.
 # TODO: Instead of the below, simply use msolve! It does real root isolation.
-
 def identify_real_roots(f, prec=NUM_BITS_PRECISION, force_real=False):
     """ For a univariate polynomial with rational coefficients, 
     it determines the roots which are real valued with the given precision.
@@ -189,16 +189,14 @@ def identify_real_roots(f, prec=NUM_BITS_PRECISION, force_real=False):
     real_roots = [(root[0].real() if force_real else root[0])  for root in all_roots if abs(root[0].imag()) < 2^(-prec)]
     return real_roots
 
-def branch_points(f, proj_var, field=QQbar, identify_real=False, prec=NUM_BITS_PRECISION):
-    """ Computes all the branch points, i.e. points on V(f) over QQbar, unless other field provided, relative
+def branch_points(f, proj_var, prec=NUM_BITS_PRECISION):
+    """ Computes all the real branch points, i.e. points on V(f) relative
         to the projection onto the proj_var-axis.
 
         The branch points are the solutions to the ideal 
             I = (f) + ( diff(f, x_i) | x_i != proj_var).
         
-        The solutions are computed over QQbar. 
-        Note: If the coefficients of f are in QQ, then all solutions
-        are in QQbar [REF]
+        The solutions are computed using groebner bases and real root isolation in msolve.
     
     Input
     ------
@@ -211,20 +209,16 @@ def branch_points(f, proj_var, field=QQbar, identify_real=False, prec=NUM_BITS_P
     """
     R = f.parent()
 
-    I = R.ideal([f] + [diff(f, x) for x in R.gens() if not (x == proj_var)])
+    # branch point system.
+    system = [f] + [diff(f, x) for x in R.gens() if not (x == proj_var)]
 
     # Now solve the ideal, assuming it is just a collection of points.
     # TODO: Can essentially remove the the assertion, as it will be necessarily true. Why?
-    assert(I.dimension() == 0)
+    assert(R.ideal(system).dimension() == 0)
 
-    variety = I.variety(field)
+    variety = variety_msolve(system, prec)
 
-    if identify_real:
-        # TODO: Later test, if abs does slow down. Can just replace by "and" of the two comparisons then.
-        # TODO: Perhaps solving over AlgReal might be better?
-        return [point for point in variety if all([abs(point[key].imag()) < 2^(-prec) for key in point.keys()])]
-    else:
-        return variety
+    return variety
 
 def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION):
     """ Computes the minimum and maximum value that proj_var takes on the deformed volume_intersection,
@@ -257,11 +251,11 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec
             techniques, given that our set of interest is convex [proof].   
     """
     
-    # Compute all "real" branch points 
+    # Compute all branch points (these are automatically real since using msolve.)
     fdef = partial_eval_poly(eval_poly(deformed_product(fs), [def_value]), var_value_pairs)
-    real_branch_points = branch_points(fdef, proj_var, identify_real=True, prec=prec)       # TODO Issue: Already for small example, solving over QQbar takes for ever!!!
+    bpoints = branch_points(fdef, proj_var, prec)       # TODO Issue: Already for small example, solving over QQbar takes for ever!!!
     # Now identify the branchpoints satisfying f >= 0 for all f in fs:
-    inside_branch_points = [point for point in real_branch_points if all([partial_eval_poly(f, to_real(point), infer_target_ring=True) >=0 for f in fs ])]
+    inside_branch_points = [point for point in bpoints if all([partial_eval_poly(f, point, infer_target_base_ring = True) >=0 for f in fs ])]
     
     # Now return only the proj_var values 
     # TODO: Split this actually into two functions, so that one can utitilize the computed branch_points if in interest.
@@ -421,6 +415,9 @@ def creative_telescoping(I, proj_var, strategy=None):
         ct_system = ct_ideal.ct(Dvar, certificates=False)
     return ct_system[0].parent().ideal(ct_system)
 
+
+
+    
 # def volume_intersection(p, translation_vectors, precis): #assume that dim > 1, p>1 even, translation vectors give non-empty intersection!
 #     """ Computes the volume of the intersection of L_p balls shifted by translation_vectors in RR^dim. 
 
