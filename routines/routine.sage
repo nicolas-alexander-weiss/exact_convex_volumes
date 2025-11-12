@@ -145,21 +145,26 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
 
     # Partially evaluate def_poly to land in a univariate polynomial ring.
     univariate_poly = partial_eval_poly(def_poly, var_value_pairs) 
+    var_name = univariate_poly.parent().gens()[0]
 
     # HEURISTIC: The relevant line segment is bounded by the middle two real roots of univariate_poly,
     # see also the respective proposition in our paper. Will have evenly many roots in this setting.
 
     # Note: Also the real roots are only "real" with the given precision.
 
-    real_roots = identify_real_roots(univariate_poly, prec, force_real=True)
-    num_roots = len(real_roots)
+    real_variety = variety_msolve([univariate_poly], prec) # identify_real_roots(univariate_poly, prec, force_real=True)
+    num_roots = len(real_variety)
     assert(num_roots % 2 == 0)
 
+    # print("Real variety: {}".format(real_variety))
+
     # Sort the roots in increasing order:
-    real_roots.sort()
+    real_values = [pt[var_name] for pt in real_variety]
+    real_values.sort()
+    # print("Real values: {}".format(real_values))
 
     # The following difference will necesarily be positive.
-    return real_roots[num_roots // 2] - real_roots[num_roots // 2 - 1]
+    return real_values[num_roots // 2] - real_values[num_roots // 2 - 1]
 
 
 # TODO: Instead of the below, simply use msolve! It does real root isolation.
