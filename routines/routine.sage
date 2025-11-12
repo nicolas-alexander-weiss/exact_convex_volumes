@@ -1,4 +1,8 @@
 # sys.path.insert(0, '/Users/lakshmiramesh/Desktop/ore_algebra/src')
+
+# Insert also the link to the msolve interface:
+load("../../msolvetest/sage2msolve.sage")
+
 import ore_algebra
 from ore_algebra import *
 
@@ -157,6 +161,9 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
     # The following difference will necesarily be positive.
     return real_roots[num_roots // 2] - real_roots[num_roots // 2 - 1]
 
+
+# TODO: Instead of the below, simply use msolve! It does real root isolation.
+
 def identify_real_roots(f, prec=NUM_BITS_PRECISION, force_real=False):
     """ For a univariate polynomial with rational coefficients, 
     it determines the roots which are real valued with the given precision.
@@ -305,14 +312,79 @@ def construct_integrand(fs, deform_value, var_value_pairs, proj_var):
 
  
     fdef = partial_eval_poly(eval_poly(deformed_product(fs), [deform_value]), var_value_pairs)
+    
+    # Multiply out the denominators and change to integer ring:
+    fdef_ZZ = fdef.numerator().change_ring(ZZ)
+    proj_var_ZZ = fdef_ZZ.parent()(proj_var)
 
-    prim_var = [var for var in fdef.parent().gens() if not var == proj_var][0] # TODO: Here taking the first, should make this more strategic here.
+    prim_var = [var for var in fdef_ZZ.parent().gens() if not var == proj_var_ZZ][0] # TODO: Here taking the first, should make this more strategic here.
     
     sgn = (-1)^0 # TODO: Should depend on the choice of prim_var, to account for ordering.
 
-    A = sgn * diff(fdef, prim_var) * prim_var / fdef # Automatically constructs the fraction field.
+    A = sgn * diff(fdef_ZZ, prim_var) * prim_var / fdef_ZZ # Automatically constructs the fraction field.
 
     return A
+
+
+def get_picard_fuchs_t(fs, strategy=None):
+    """ Computes the Picard Fuchs operator for 
+    Vol(t) = Vol( prod(fs) - t >= 0) \cap {fs \geq 0 forall s} 
+
+    Input
+    ------
+    fs              : Polynomials defining semi-alg set (by fs >= 0)
+
+    Output
+    ------
+    P : Picard Fuchs operator, in WeylAlgebra D_{t}
+
+    TODO
+    -----
+    Make the procedure by which to compute the intersection ideal more informed.
+    """
+
+    deform_var_name = "t"
+
+    # Construct the integrand, note that here this is over the ring QQ[x..., t], rather than QQ[x..][t]
+    At = construct_integrand_t(fs, deform_var_name, strategy)
+    
+    Wt = rational_weyl_algebra(At.parent().ring())
+
+    annAt = Wt.ideal([At*D-D(At) for D in Wt.gens()]) # construct the annihilating ideal
+
+    # To be precise, below we simply construct some subset of the integration ideal, 
+    # but it suffices to be non-empty.
+    intIdeal_t = creative_telescoping(annAt, At.parent().ring()(deform_var_name))
+
+    return intIdeal_t.gens()[0]
+
+
+def construct_integrand_t(fs, def_var_name, strategy=None):
+    """ See construct_integrand(). Constructs the picard fuchs operator for the deformed slice
+    vol(t) = vol({prod(fs)-t >= 0} \cap {fs >= 0})
+
+    Input
+    -----
+        See get_picard_fuchs_t()
+    """
+
+    ft = deformed_product(fs, def_var_name)
+
+    ft_flattened = ft.parent().flattening_morphism()(ft) # flatten the ring.
+
+    # Multiply out the denominators and change to integer ring:
+    ft_flattened_ZZ = ft_flattened.numerator().change_ring(ZZ)
+
+
+    proj_var_ZZ = ft_flattened_ZZ.parent()(def_var_name)
+
+    prim_var = [var for var in ft_flattened_ZZ.parent().gens() if not var == proj_var_ZZ][0] # TODO: Here taking the first, should make this more strategic here.
+    
+    sgn = (-1)^0 # TODO: Should depend on the choice of prim_var, to account for ordering. (Or maybe it doesn't matter? Either does annihilate it.)
+
+    At = sgn * diff(ft_flattened_ZZ, prim_var) * prim_var / ft_flattened_ZZ # Automatically constructs the fraction field.
+
+    return At
 
 def rational_weyl_algebra(polyRing):
     """ Constructs the rational Weyl algebra for a specified polynomial ring.
@@ -321,23 +393,28 @@ def rational_weyl_algebra(polyRing):
 
     return OreAlgebra(fracField, *[("D" + str(var), {}, {str(var) : 1}) for var in polyRing.gens()])
 
-def creative_telescoping(I, proj_var):
+def creative_telescoping(I, proj_var, strategy=None):
     """ For an ideal in the rational Weyl algebra W, it carries out creative telescoping
     sequentially to eliminate all but proj_var.
 
     The result is an ideal contained in:     (I + dx_1 * D + ...+ dx_n *D) \cap D_x0
     (In this example we assume x0 to be the proj_var)
 
+    Output
+    ------
+    ct_ : Returns a list of of univariate differential operators of length 1 (!).
+
     TODO
     ------
-    Should extend this, so that at least temporarily we store / output for debuginfo the certificates, too.
+    - Should extend this, so that at least temporarily we store / output for debuginfo the certificates, too.
+    - Should include some basic strategy.
     """
     W = I.ring()
-    ct_ideal = I
+    ct_system = list(I.gens())
     for Dvar in [Dvar for Dvar in W.gens() if not Dvar == W("D"+str(proj_var))]:
-        ct_ideal = W.ideal(ct_ideal.ct(Dvar, certificates=False))
-    
-    return ct_ideal
+        ct_ideal = ct_system[0].parent().ideal(ct_system)
+        ct_system = ct_ideal.ct(Dvar, certificates=False)
+    return ct_system[0].parent().ideal(ct_system)
 
 # def volume_intersection(p, translation_vectors, precis): #assume that dim > 1, p>1 even, translation vectors give non-empty intersection!
 #     """ Computes the volume of the intersection of L_p balls shifted by translation_vectors in RR^dim. 

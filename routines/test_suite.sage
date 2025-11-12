@@ -237,6 +237,78 @@ def test12():
     # Computed this before:
     assert(P == (-x[0]^4 + 1)*d[0] + (x[0]^3))
 
+def test13():
+    """ Test construct_integrand_t()
+    """
+    n = 2
+    p = 4
+    S = PolynomialRing(QQ, "x", n)
+    x = S.gens()
+
+    fs = [shifted_lp_poly(S, p, [0,0])]
+
+    def_var_name = "t"
+
+    At = construct_integrand_t(fs, def_var_name)
+
+    assert(At == At.parent()("(-4*x0^4)/(-x0^4 - x1^4 - t + 1)"))
+
+def test14():
+    """ Test get_picard_fuchs_t()
+    # TODO: Add a condition here. So far only a termination test of the code.
+    """
+
+    n = 2
+    p = 4
+    S = PolynomialRing(QQ, "x", n)
+    x = S.gens()
+
+    fs = [shifted_lp_poly(S, p, [0,0])]
+
+    def_var_name = "t"
+    ft = deformed_product(fs, def_var_name)
+
+    ft_flattened = ft.parent().flattening_morphism()(ft) 
+
+    At = construct_integrand_t(fs, def_var_name, strategy=None)
+
+    # print("Construct the integrand:")
+    # print(At)
+    # print(At.parent())
+
+    # print("\nConstruct the rational Weyl algebra:")
+    Wt = rational_weyl_algebra(At.parent().ring())
+
+    # print(Wt)
+
+    annAt = Wt.ideal([At*D-D(At) for D in Wt.gens()]) # construct the annihilating ideal
+    # print(annAt)
+    intIdeal_t = creative_telescoping(annAt, At.parent().ring()(def_var_name))
+
+    # print(intIdeal_t)
+    
+def test15():
+    """ Set up an example where the CT might not terminate (i.e. for comparison with e.g. Magma or other CT systems.)
+
+    """
+    n = 2
+    p = 4
+
+    R = PolynomialRing(QQ, "x", n)
+    mus = [[QQ(0), QQ(0)], [QQ(1),QQ(0)], [QQ(0), QQ(1)]]
+    fs = [shifted_lp_poly(R, p, mu) for mu in mus]
+
+    deform_value = QQ(0.1)
+    proj_var = R.gens()[1]
+
+    var_value_pairs = {}
+
+    print("Computing Picard Fuchs operator. Might take a moment.")
+    P = get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy=None)
+    
+    # Finishes, but takes a while!
+
+
 if __name__ == "__main__":
     test0()
     test1()
@@ -251,3 +323,6 @@ if __name__ == "__main__":
     test10()
     test11()
     test12()
+    test13()
+    test14()
+    test15()
