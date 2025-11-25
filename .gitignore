@@ -1,5 +1,9 @@
 ############# Standard Python Gitignore ####################
 
+# Tempory files of the msolve interface
+*-in.ms
+*-out.ms
+
 # This include sage compiled files as well!
 
 
