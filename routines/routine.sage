@@ -1,13 +1,13 @@
 # sys.path.insert(0, '/Users/lakshmiramesh/Desktop/ore_algebra/src')
 
 # Insert also the link to the msolve interface:
-load("../../msolvetest/sage2msolve.sage")
+load("sage2msolve.sage")
 
 import ore_algebra
 from ore_algebra import *
 
 from scipy import optimize
-
+import numpy as np
 
 # Global parameters
 
@@ -189,6 +189,37 @@ def identify_real_roots(f, prec=NUM_BITS_PRECISION, force_real=False):
     real_roots = [(root[0].real() if force_real else root[0])  for root in all_roots if abs(root[0].imag()) < 2^(-prec)]
     return real_roots
 
+def get_inside_branch_points(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION):
+    """ Return the branch points of prod(fs)-t, evaluated at def_value and var_value_pairs, that lie
+    inside {f > 0} for all f in fs.
+
+    Input
+    ------
+        fs              : A list of multivariate polynomials
+        def_value       : In QQ, value by which the product is deformed.
+        proj_var        : The variable, such that we project onto the proj_var-axis.
+        var_value_pairs : The values already restricted to.
+    
+    Output
+    ------
+        inside_branch_points : List of points of the form {xi:valxi ... for all i}, where i 
+                                goes over these variables that remain after the value substitutions.
+
+    Remark
+    ------
+        The resulting computed branchpoints are those that lie on boundary of the smooth deformation of the intersection.
+    """
+    assert(def_value > 0) # The branch points would satisfy f==0 for some of the f in fs, and hence this case is not allowed.
+
+    # Deform and compute branch points of the projection.
+    fdef = partial_eval_poly(eval_poly(deformed_product(fs), [def_value]), var_value_pairs) 
+    bpoints = branch_points(fdef, proj_var, prec) 
+    
+    # Now identify the branchpoints satisfying f > 0 for all f in fs:
+    inside_branch_points = [point for point in bpoints if all([partial_eval_poly(f, point, infer_target_base_ring = True) > 0 for f in fs ])]
+    
+    return inside_branch_points
+
 def branch_points(f, proj_var, prec=NUM_BITS_PRECISION):
     """ Computes all the real branch points, i.e. points on V(f) relative
         to the projection onto the proj_var-axis.
@@ -235,7 +266,7 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec
     -------
         An interval representing the [min, max] value of proj_var on the deformed intersection.
     
-        This can be done in terms of computing real branch_points lieing on the boundary 
+        This can be done in terms of computing real branch_points lying on the boundary 
         of the deformed intersection and then projecting onto proj_var.
 
     Caveat
@@ -244,21 +275,17 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec
         The "deformed semi-algebraic set" refers to the connected component of {prod(f) - t >= 0}
         that lies within the "intersection".
 
-
-    TODO
-    -----
-        - Check how fast this is in practice. And if there is a better way with numerical optimization 
-            techniques, given that our set of interest is convex [proof].   
     """
-    
-    # Compute all branch points (these are automatically real since using msolve.)
-    fdef = partial_eval_poly(eval_poly(deformed_product(fs), [def_value]), var_value_pairs)
-    bpoints = branch_points(fdef, proj_var, prec)       # TODO Issue: Already for small example, solving over QQbar takes for ever!!!
+    # If only 1 lp ball, then no need to deform!
+    if def_value == 0:
+        # If not deformed, only 1 poly (smooth bdry!) supported
+        assert(len(fs) == 1)
+        return [{proj_var:point[proj_var]} for point in branch_points(fs[0], proj_var, prec)]    
+
     # Now identify the branchpoints satisfying f >= 0 for all f in fs:
-    inside_branch_points = [point for point in bpoints if all([partial_eval_poly(f, point, infer_target_base_ring = True) >=0 for f in fs ])]
+    inside_branch_points = get_inside_branch_points(fs, def_value, proj_var, var_value_pairs, prec)
     
     # Now return only the proj_var values 
-    # TODO: Split this actually into two functions, so that one can utitilize the computed branch_points if in interest.
     return [{proj_var:point[proj_var]} for point in inside_branch_points]
 
 
@@ -415,9 +442,308 @@ def creative_telescoping(I, proj_var, strategy=None):
         ct_system = ct_ideal.ct(Dvar, certificates=False)
     return ct_system[0].parent().ideal(ct_system)
 
+def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_singular_points=[]):
+    """ Given a linear differential operator in 1 variable, i.e. an ODE, solve it given the provided initial conditions
+    and output the value of the solution at the requested point.
+
+    The initial conditions specify the coefficients to the local series solutions, given the exponents of the starting monomials.
+    In our case, since our solutions are bounded in the specified range, there will be no log part in the starting monomials.
+
+    The initial condition solver is used in two scenarios:
+    - Vol1:
+        - Here the operator to be considered is P*dx, i.e. we solve for the value of the integral \int_a^x vol(x0)dx0.
+        - At a, the corresponding starting monomial is 1 with value 0. (RMK. "a" will be a branchvalue, i.e. a singular point of the operator!)
+        - At the other points the initial data is the volume of the slice at a given value of x. Thus, the corresponding starting monomial is (x-x_0)^1. 
+        - The evaluation point will be the next branch_value, i.e. again a singular point of the picard fuchs operator.
+    - Vol2: 
+        - Directly solve the picard fuchs operator in t, i.e. for the slices of the deformed intersection and then analytically continue to t=0.
+        - The initial conditions all are taken at smooth points, smaller than the first branch-value of the projection onto t. 
+        - The corresponding starting monomials will always be (t-t_0)^0 = 1.
 
 
+    Input
+    ------
+    P : Element of Weyl algebra over polynomial or rational function ring in 1 variable.
+    initial_conditions : { x_val_1:{"exponent":expon, "coef":coef }, x_val_2:...}
+    evaluation_condition : Dictionary containing evaluation point and the exponent 
+                            of the starting monomial, whose coef shall be read of, e.g. {"pt":0, "exponent":0}
+
+    Example
+    -------
+    initial_condition = {1/10:{"exponent":1, "coef":3.12223532...}, }
+
+    Caveat
+    ------
+    - [TODO] Since we really depend on the order of the initial conditions to be always the same, we should store them as a list.
+    - [TODO] Consider the singular points of the differential operator.
+    - This is still buggy in general.
+    - [TODO] Need proof that this will work in our considered scenarios.
+    - [TODO] Need to check that the initial conditions are good (and can do this before evaluating I think! So we don't waste the computations of the slice volumes.)
+
+    """
+    # Assert that univariate differential operator
+    assert(len(P.parent().gens()) == 1 and len(P.parent().base_ring().gens()) == 1)
+
+    # Extract the variable:
+    t = P.parent().base_ring().gens()[0]
+
+    # Assert that the starting monomials corresponding to the exponents do exist in the standard monomials
+    assert(all([(t-pt)^condition["exponent"] in P.local_basis_monomials(pt) for pt,condition in initial_conditions.items()]))
+
+    # Assert that we provide as many initial conditions as the order of the operator
+    assert(P.order() == len(initial_conditions.keys()))
+
+    # Set up the linear system of rk = P.order() 
+
+    # Choose a base point for the linear system, e.g. the evaluation point
+    eval_point = evaluation_condition["pt"]
+    # Set up some symbolic variables
+    a = SR.var("a", P.order())
+    # coef_vector:
+    ini_eval_point = list(a) # [a0, a1,..., a{rk-1}]
+
+    # Transition to the other points and yields linear equations in the a's.
+    # More precisely: Given the unkown coefs "a" at the base point, yields an affine linear expression in "a"
+    #   for the coef of the std_monomial provided in the initial data.
+    lin_eqs = [(P.numerical_transition_matrix([eval_point] + [xi for xi in reversed(sorted(apparent_singular_points))] + [pt], eps=2^(-prec))*vector(ini_eval_point))[P.local_basis_monomials(pt).index((t-pt)^condition["exponent"])] for pt,condition in initial_conditions.items()]; 
+
+    # Extract the constant terms in the affine linear equations.
+    constant_terms = vector([lin_eq.subs({ai:0 for ai in a}) for lin_eq in lin_eqs])
+
+    # Express in terms of a matrix:
+    M = matrix([[lin_eq.coefficient(ai) for ai in a ] for lin_eq in lin_eqs])
     
+    # Change field to complex ball field to take inverse
+    CB = ComplexBallField(prec)
+    #M.change_ring(CB).inverse()
+
+    # Set up the initial data as a vector
+    initial_data_vector = vector([condition["coef"] for pt,condition in initial_conditions.items()]).change_ring(CB)
+
+    # Solve
+    eval_point_coefs = M.change_ring(CB).inverse() * (initial_data_vector - constant_terms)
+
+    # Read of the coefficient that we wanted to evaluate at:
+    return eval_point_coefs[P.local_basis_monomials(eval_point).index((t-eval_point)^evaluation_condition["exponent"])]
+
+def volume1(fs, deform_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=None):
+    """ Computes the smooth volume of the deformed intersection of lp balls. 
+
+    Input
+    -----
+    fs : list of multivariate polynomials over QQ
+    def_value : non-negative element in QQ
+    var_value_pairs : Dictionary with  variable:value   key-value-pairs, where value is in QQ.
+
+    Output
+    ------
+    The volume of the deformation of the intersection of all {f>=0 | f in fs}
+    to prod(fs)-def_value. In both case only the points in the slice specified by var_value_pairs are considered.
+
+    Caveat
+    ------
+    The output will be a number in the complex ball field with prec many bits of precision.
+
+
+
+    [TODO] Add tests to test-suite.
+    [TODO] Add assertions.
+    [TODO] Implement good initial conditions.
+    [TODO] Check if branch_points computation also works to t=0 case (so that don't need separate case.)
+
+    [TODO] Make the choice of a projection variable strategic.
+
+    [TODO] Assert that there is actually only a unique root in the singular locus corresponding to either numerical branch_point.
+
+    """
+    # The evaluated polynomial (for reference)
+    evaluated_poly = partial_eval_poly(eval_poly(deformed_product(fs), [deform_value]), var_value_pairs)
+    #print(evaluated_poly)
+
+    # Early exit if already univariate, then return 1-dim volume.
+    if len(evaluated_poly.parent().gens()) == 1:
+        # print("Entering the 1 dim case for:", var_value_pairs, deform_value )
+        return get_1_dim_volume(fs, var_value_pairs, deform_value, prec)
+
+    # Fix a projection variable (here just the first undetermined variable): 
+    proj_var = evaluated_poly.parent().gens()[0]
+
+    # Get the Picard-Fuchs operator and define the operator to be solved.
+    P = get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy)
+    Pdx = P * P.parent().gens()[0]
+    # print("Order Pdx:", Pdx.order())
+
+    # Determine the branch points and corresponding critical values bounding the deformed set.
+    
+    # Numerical critical values:
+    relevant_crit_val = [pt[proj_var] for pt in project_deformed_intersection(fs, deform_value, proj_var, var_value_pairs, prec)]
+    # print("Relevant crit cal", relevant_crit_val)
+
+    assert(len(relevant_crit_val) == 2)
+    min_crit_val = min(relevant_crit_val)
+    max_crit_val = max(relevant_crit_val)
+
+    # The singular locus in AA!!|| (exactly computed in QQbar - but need to identify reals) (from lead coef, casted to polynomial ring!)
+    lead_coef = P.leading_coefficient().numerator()
+    singular_locus = lead_coef.roots(AA, multiplicities=False) # identify_real_roots(lead_coef, prec, force_real=False) # solves in QQbar, but only takes the ones with small imaginary part.
+    # print("Singular locus:", singular_locus)
+
+    # Set the interval in which we want to sample points, identify our branch points among
+    xmin = singular_locus[np.argmin([np.abs(root - min_crit_val) for root in singular_locus])]
+    xmax = singular_locus[np.argmin([np.abs(root - max_crit_val) for root in singular_locus])]
+
+    # apparent singularities (that are not singularities of our solution:)
+    xapparent = sorted([xi for xi in singular_locus if not xi in [xmin, xmax] and (xmin < xi) and (xi < xmax)])
+
+    # print("Xmin = ", xmin)
+    # print("xmax = ", xmax)
+
+    # print("Apparent Singular points = ", xapparent)
+
+    # Determine points for initial data, such that transition matrix becomes invertible.
+    CBF = ComplexBallField(prec)
+    initial_points = get_good_initial_points(P, CBF(xmin).real(), CBF(xmax).real())
+    # print("initial points:", initial_points)
+
+    # Determine initial conditions (TODO: in parallel)
+    #{"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
+    initial_conditions = {xmin:{"exponent":0, "coef":0}} | {xi:{"exponent":1, "coef":volume1(fs, deform_value, var_value_pairs | {proj_var:xi}, prec, strategy)} for xi in initial_points}
+
+    # print("Initial conditions", initial_conditions)
+    # print([(key.parent(), value["coef"].parent()) for key,value in initial_conditions.items()])
+
+    evaluation_condition = {"pt":xmax, "exponent":0}
+
+    # Solve the initial value problem
+    volume = solve_diff_op(Pdx, initial_conditions, evaluation_condition, prec, xapparent)
+
+    # Return the volume
+    return volume
+
+def get_good_initial_points(P, x0, x1):
+    """ Provides n rational points strictly between x0 and x1, 
+    where n is the order of the ordinary differential operator to be solved.
+
+    Input
+    -----
+    [TODO]
+
+    Output
+    ------
+    [TODO]
+
+    Remark
+    ------
+    [TODO] Actually provide the invertibility check of the initial points.
+    """
+    n = P.order()
+    q = sample_n_rational_points(x0,x1,n)
+
+    # TODO: Actually check invertibility of the linear system.
+    return q
+
+
+def sample_n_rational_points(x0,x1,n, base=10):
+    """ Linearly samples n rational points strictly between x0 and x1.
+    Determines q_start and delta, accordingly, so that
+
+    qk = qstart + k*delta (for k = 0,..., n-1)
+
+    yields n rational points between x0 and x1.
+
+    In case x0 and x1 are given as algebraic numbers, it first truncates the imaginary pary.
+
+    Determines a suitable interval in base 10.
+
+    Remark
+    ------
+    [TODO] - Print delta on demand. 
+    [TODO] - Which log function is this? Is it accurate?
+    """
+    xmax = max(x0,x1).real()
+    xmin = min(x0,x1).real()
+
+    # Determine integer N, such that 10^N < xmax-xmin 
+    N = np.floor(log(xmax-xmin)/log(base))
+
+    # Choose qstart in 2*10^(N-1) neigborhood of xmin
+    qstart = QQ((np.floor(xmin / 10^(N-1)) + 2) * 10^(N-1))
+
+    # Generate the samples linearly
+    if n == 1:
+        return [qstart]
+
+    # n != 1:
+    delta = QQ(10^(N-1) / (n-1))
+    q = [qstart + k*delta for k in range(0,n)]
+
+    return q
+
+
+def volume2(fs, prec, strategy=None):
+    """ Computes the volume of the intersection of the lp balls bigcap {f >= 0 } for f in fs.
+
+    Input
+    -----
+        fs : List of polynomials over QQ describing the shifted lp balls.
+        prec : Number of bits precision of the computation.
+
+    Output
+    ------
+    [TODO]
+
+    Remark
+    ------
+    [TODO] Change input actually to the points. This is what people will be using
+
+    """
+    # Early exit, if only 1 function:
+    if len(fs) == 1:
+        return volume1(fs,0, {}, prec, strategy)
+
+    # TODO: Assertions
+    assert(all_from_same_parent_ring(fs))
+
+    # Get Picard Fuchs
+    Pt = get_picard_fuchs_t(fs, strategy)
+
+    # Choose initial points between 0 and the smallest singular point larger than 0.
+    lead_coef = Pt.leading_coefficient().numerator()
+    singular_locus = lead_coef.roots(AA, multiplicities=False)
+
+    assert(0 in singular_locus)
+    index_zero = sorted(singular_locus).index(0)
+    
+    smallest_positive_singular_point = sorted(singular_locus)[index_zero + 1] if index_zero + 1 < len(singular_locus) else QQ(1/10)
+
+    CBF = ComplexBallField(prec)
+    initial_points = get_good_initial_points(Pt, 0, CBF(smallest_positive_singular_point).real())
+
+    # Compute initial conditions (volumes of the t slices)
+    initial_conditions = {ti:{"exponent":0, "coef":volume1(fs, ti, {}, prec, strategy)} for ti in initial_points}
+
+    # Set evaluation condition at 0
+    evaluation_condition = {"pt":0, "exponent":0}
+
+    # Solve the initial value problem
+    volume = solve_diff_op(Pt, initial_conditions, evaluation_condition, prec, [])
+    
+    return volume
+
+
+
+    # TODO: Current issue: Throws the error we also had a while back, when it was complaining about "Macsyma"
+    # Back then we had to just change back to QQbar and then it worked again. Make sure to make analogous to the notebook computation and check the values.
+
+    # TODO: Also might simply collect the values one gets and then simply step through the reconstruction process. Check invertibility etc..
+    # TODO: Check again, if it simply works if the intersection of 2 polies slightly deformed. Then will have to add the path for analytic continuation!
+
+
+
+
+
+
+
 # def volume_intersection(p, translation_vectors, precis): #assume that dim > 1, p>1 even, translation vectors give non-empty intersection!
 #     """ Computes the volume of the intersection of L_p balls shifted by translation_vectors in RR^dim. 
 
