@@ -514,6 +514,28 @@ def test23():
     CBF = ComplexBallField(prec - 2)
     assert(abs(CBF(vol1) - CBF(vol2)) < target_accuracy)
 
+def test24():
+    """ Volume of L2 ball in RR^4.
+
+    Remark: In the implementation of Mark Mezzaroba, this is mentioned to fail due to the CT algorithm.
+    https://src.koda.cnrs.fr/marc.mezzarobba.3/volumes/-/blob/main/volume.py?ref_type=heads
+    """
+    print("[TEST24]")
+
+    n = 4
+    p = 2
+    S = PolynomialRing(QQ, "x", n)
+    x = S.gens()
+
+    fs = [shifted_lp_poly(S, p, [0,0,0,0])]
+
+    prec = 400
+    ##
+    P = get_picard_fuchs(fs, 0, {}, x[0])
+    # print("The Picard Fuchs operator: {}".format(P))
+    assert(P == 1)
+
+
 
 if __name__ == "__main__":
     global ONLY_FAST_TESTS, MUST_DO
@@ -537,7 +559,7 @@ if __name__ == "__main__":
     test13()
     test14()
     test15()
-    test16() # TODO Fill details!
+    test16()
     test17()
     test18()
     test19()
@@ -545,3 +567,4 @@ if __name__ == "__main__":
     test21()
     test22()
     test23()
+    test24()
