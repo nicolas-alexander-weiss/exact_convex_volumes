@@ -9,6 +9,12 @@ from ore_algebra import *
 from scipy import optimize
 import numpy as np
 
+# Custom exceptions:
+
+class BadPointsError(Exception):
+    pass
+
+
 # Global parameters
 
 NUM_BITS_PRECISION = 20 # i.e. Precision of 1 / 2^NUM_BITS_PRECISION.
@@ -139,6 +145,9 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
     ------
     # TODO: Raise error when variable appears twice. 
     # TODO: Also need to make the caveat more precise.
+
+    [TODO] Rephrase both in terms of convexity, vs. just the two points within all the other {f > 0} for f in fs.
+            and then check that there are only two in the intersection.
     """
     # Deform the product to prod(fs) - t by the specified value for t.
     def_poly = eval_poly(deformed_product(fs), def_value)
@@ -515,7 +524,10 @@ def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_si
     
     # Change field to complex ball field to take inverse
     CB = ComplexBallField(prec)
-    #M.change_ring(CB).inverse()
+
+    # Check that determinant is non-zero (i.e. the complex ball of the determinant doesn't contain 0.)
+    if not (M.change_ring(CB).determinant() != 0):
+        raise BadPointsError("Determinant of the system cannot be distinguished from zero.")
 
     # Set up the initial data as a vector
     initial_data_vector = vector([condition["coef"] for pt,condition in initial_conditions.items()]).change_ring(CB)
@@ -640,6 +652,9 @@ def get_good_initial_points(P, x0, x1):
     q = sample_n_rational_points(x0,x1,n)
 
     # TODO: Actually check invertibility of the linear system.
+    # Rmk: Note that with probability 1, the system is invertible. Ideally this check while solving the differential operator
+    #   and then raising an error.
+
     return q
 
 

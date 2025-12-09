@@ -535,7 +535,11 @@ def test24():
     # print("The Picard Fuchs operator: {}".format(P))
     assert(P == 1)
 
-
+def test25():
+    """ Check that error is raised when the initial points are not good, i.e. the system is not good.
+    """
+    # TODO
+    pass
 
 if __name__ == "__main__":
     global ONLY_FAST_TESTS, MUST_DO
