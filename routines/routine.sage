@@ -330,6 +330,26 @@ def get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy=None)
 
     return intIdeal.gens()[0]
 
+def annihilator_deformed_intersection(fs, deform_value, var_value_pairs, proj_var):
+    """ Returns an annihilating d-finite ideal in the rational Weyl algebra 
+        for the rational integrand 
+        
+        d_i(F) * x_i / F 
+        where x_i not = proj_var
+        and 
+        F(x,t) = prod(fs) - t
+
+        after evaluating at t=deform_value and var_value_pairs.
+    """
+
+    A = construct_integrand(fs, deform_value, var_value_pairs, proj_var)
+    
+    W = rational_weyl_algebra(A.parent().ring())
+
+    annA = W.ideal([A*D-D(A) for D in W.gens()]) # construct the annihilating ideal
+    
+    return annA
+
 def construct_integrand(fs, deform_value, var_value_pairs, proj_var):
     """ By standard considerations, see for example our paper, the function 
     vol(proj_var) can be expressed as period of a rational function A. 
@@ -489,6 +509,10 @@ def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_si
     - [TODO] Need proof that this will work in our considered scenarios.
     - [TODO] Need to check that the initial conditions are good (and can do this before evaluating I think! So we don't waste the computations of the slice volumes.)
 
+
+    - [TODO] Assure that the accuracy is in the correct ball precision. (Rather than providing a float as accuracy).
+            --> Or all together change the accuracy! (e.g. to be input rather as decimal digits. e.g. as 1e-100)
+
     """
     # Assert that univariate differential operator
     assert(len(P.parent().gens()) == 1 and len(P.parent().base_ring().gens()) == 1)
@@ -506,27 +530,28 @@ def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_si
 
     # Choose a base point for the linear system, e.g. the evaluation point
     eval_point = evaluation_condition["pt"]
-    # Set up some symbolic variables
-    a = SR.var("a", P.order())
+
+    # Set up our variables as elements in polynomial ring over the complex ball field:
+    CB = ComplexBallField(prec)
+    R = PolynomialRing(CB, "a", P.order())
+    a = R.gens()
+
     # coef_vector:
     ini_eval_point = list(a) # [a0, a1,..., a{rk-1}]
 
     # Transition to the other points and yields linear equations in the a's.
     # More precisely: Given the unkown coefs "a" at the base point, yields an affine linear expression in "a"
     #   for the coef of the std_monomial provided in the initial data.
-    lin_eqs = [(P.numerical_transition_matrix([eval_point] + [xi for xi in reversed(sorted(apparent_singular_points))] + [pt], eps=2^(-prec))*vector(ini_eval_point))[P.local_basis_monomials(pt).index((t-pt)^condition["exponent"])] for pt,condition in initial_conditions.items()]; 
+    lin_eqs = [(P.numerical_transition_matrix([eval_point] + [xi for xi in reversed(sorted(apparent_singular_points))] + [pt], eps=2^(-prec)) * vector(ini_eval_point))[P.local_basis_monomials(pt).index((t-pt)^condition["exponent"])] for pt,condition in initial_conditions.items()]
 
     # Extract the constant terms in the affine linear equations.
-    constant_terms = vector([lin_eq.subs({ai:0 for ai in a}) for lin_eq in lin_eqs])
+    constant_terms = vector([eval_poly(lin_eq, [CB.zero() for ai in a]) for lin_eq in lin_eqs])
 
-    # Express in terms of a matrix:
-    M = matrix([[lin_eq.coefficient(ai) for ai in a ] for lin_eq in lin_eqs])
-    
-    # Change field to complex ball field to take inverse
-    CB = ComplexBallField(prec)
+    # Express in terms of a matrix (over the complex ball field defined above):
+    M = matrix([[CBF(lin_eq.coefficient(ai)) for ai in a ] for lin_eq in lin_eqs])
 
     # Check that determinant is non-zero (i.e. the complex ball of the determinant doesn't contain 0.)
-    if not (M.change_ring(CB).determinant() != 0):
+    if not (M.determinant() != 0):
         raise BadPointsError("Determinant of the system cannot be distinguished from zero.")
 
     # Set up the initial data as a vector
@@ -551,6 +576,8 @@ def volume1(fs, deform_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy
     ------
     The volume of the deformation of the intersection of all {f>=0 | f in fs}
     to prod(fs)-def_value. In both case only the points in the slice specified by var_value_pairs are considered.
+
+    The output is an element of a complex ball field!
 
     Caveat
     ------

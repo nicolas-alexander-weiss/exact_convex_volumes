@@ -539,12 +539,88 @@ def test25():
     """ Check that error is raised when the initial points are not good, i.e. the system is not good.
     """
     # TODO
+    print("[TEST25] Not yet implemented!")
     pass
+
+def vol_lp_ball(n,p,r, prec, use_complex=True):
+    """ The closed formula for the volume of an Lp ball in R^n of radius r.
+    Uses the implementation of the gamma function in the complex resp real ball field.
+
+    The closed formula, according to (https://en.wikipedia.org/wiki/Volume_of_an_n-ball), is given by:
+
+    Vol_{n,p,r} = r^n * (2 Gamma(1/p + 1))^n / Gamma(n/p + 1) 
+    """
+    if use_complex:
+        BF = ComplexBallField(prec) 
+    else:
+        BF = RealBallField(prec)
+
+    return  r^n * (2 * BF(1/p + 1).gamma())^n / BF(n/p + 1).gamma()
+
+def test26():
+    """ Make sure that the output of volume 1 is actually an element of a complex ball field of expected precision.
+    """
+
+
+    prec_bits = 200
+
+    n = 3
+    p = 4
+    r = 1
+
+    S = PolynomialRing(QQ, "x", n)
+    x = S.gens()
+
+
+    fs = [shifted_lp_poly(S, p, np.zeros((n,), int))]
+    vol_p_n = volume1(fs, 0, {}, prec_bits)
+
+    # print("Parent of the vol1 output expression: {}".format(vol_p_n.parent()))
+    assert((vol_p_n).parent() == ComplexBallField(prec_bits))
+    
+
+
+
+def test27():
+    """ Compare the volume of the L2, L4 and L6 ball in RR^3 with the output of the computation.
+    
+    Note that the volume of an Lp ball of radius r in RR^n is described by the formula (see Wikipedia, https://en.wikipedia.org/wiki/Volume_of_an_n-ball)
+
+    r^n * (2 Gamma(1/p + 1))^n / Gamma(n/p + 1) 
+
+    """
+    print("[TEST27]")
+
+    prec = 200
+
+    n = 3
+    p = 2
+    r = 1
+
+    S = PolynomialRing(QQ, "x", n)
+    x = S.gens()
+
+    use_complex = True
+    CBF = ComplexBallField(prec)
+
+
+    for p in [2,4,6]:
+        vol_p_n_r_closed = vol_lp_ball(n,p,r, prec, use_complex)
+
+        fs = [shifted_lp_poly(S, p, np.zeros((n,), int))]
+        vol_p_n = volume1(fs, 0, {}, prec)
+
+        # Both outputs will be in the complex ball field of the same precision. 
+        # So we can compare if the mid point of the closed formula output lives in the output
+        # of our computation:
+        assert(vol_p_n.parent() == vol_p_n_r_closed.parent())
+        assert(vol_p_n_r_closed.mid() in vol_p_n)
+
 
 if __name__ == "__main__":
     global ONLY_FAST_TESTS, MUST_DO
     ONLY_FAST_TESTS = True
-    MUST_DO = []
+    MUST_DO = [] # Enter the number of the test here.
 
 
     test0()
@@ -572,3 +648,6 @@ if __name__ == "__main__":
     test22()
     test23()
     test24()
+    test25()
+    test26()
+    test27()
