@@ -2,6 +2,8 @@
 
 # Insert also the link to the msolve interface:
 load("sage2msolve.sage")
+# Load the M2 interface helpers as well
+load("sageM2.sage")
 
 import ore_algebra
 from ore_algebra import *
@@ -14,12 +16,95 @@ import numpy as np
 class BadPointsError(Exception):
     pass
 
+class PosDimCritLocusError(Exception):
+    pass
 
 # Global parameters
 
 NUM_BITS_PRECISION = 20 # i.e. Precision of 1 / 2^NUM_BITS_PRECISION.
 
-# TODO: Over which field are solutions computed?
+# Picard-Fuchs-Operator-Caching
+class PicardFuchsCache:
+    """Cache object to store computed Picard-Fuchs-Operators.
+
+    Note that this only builds a string representation, so this is sensitive to any kind of reordering or renaming of inputs.
+    
+    This way, computations can be re-run to increase precision.
+    """
+
+    def __init__(self):
+        self.cache = {}     # for the picard-fuchs operators of the deformed slices
+        self.cache_t = {}   # for the picard-fuchs operator of the deformation family
+    
+    ### PF versions (after deformation)
+
+    def PF_input_repr(fs, deform_value, var_value_pairs, proj_var):
+        """ Flattens the inputs together as a tuple pairs denoting the input. 
+        Dicts will be flattened to a tuple of key value pairs.      
+        """
+        input_params = (("fs",tuple(fs)), ("deform_value", deform_value), ("var_value_pairs", tuple(var_value_pairs.items())), ("proj_var",proj_var))
+
+        return input_params
+
+    def contains_PF(self, fs, deform_value, var_value_pairs, proj_var):
+        """ A computed Picard-Fuchs operator should be characterized by the cohomology class that it integrates.
+        In our case, since the Picard-Fuchs operator will be returned from the from the "get_picard_fuchs()" and
+        "get_picard_fuchs_t()" function, the input will be either the fs, or additionally the deformation and slice
+        slice parameters (var_value_pairs).
+
+        [TODO] Extend this doc string.
+
+        Input
+        ------
+            fs : Polynomials over QQ of the same polynomial ring, common positivity locus defining the region of interest.
+            proj_var : The axis onto which the region will be projected. The variable in which the PF operator is defined.
+            deform_value : prod(fs) - deform_value will define the deformed slices.
+            var_value_pairs : At which the above expression will be evaluated.
+        """
+        return PF_input_repr(fs, deform_value, var_value_pairs, proj_var) in self.cache.keys()
+
+    def add_PF(self, P, fs, deform_value, var_value_pairs, proj_var):
+        """ Builds a representation and then stores the operator P in the dictionary.
+        """
+        representation = PF_input_repr(fs, deform_value, var_value_pairs, proj_var)
+        cache[representation] = P
+
+
+    def retrieve_PF(self, fs, deform_value, var_value_pairs, proj_var):
+        """ Builds a representation and retrieves the PF operator from the cache (dictionary).
+        """
+        representation = PF_input_repr(fs, deform_value, var_value_pairs, proj_var)
+        return self.cache[representation]
+
+    ### PF_t versions:
+
+    def PF_t_input_repr(fs, def_var_name):
+        """
+        [TODO] In principal should also have a way to go backwards.
+        """
+        input_params = (("fs", tuple(fs)), ("def_var_name",def_var_name))
+        return input_params
+
+    def contains_PF_t(self, fs, deform_var_name):
+        """
+        See doc string of contains_PF.
+        """
+        return PF_t_input_repr(fs, def_var_name) in self.cache_t.keys()
+
+    def add_PF_t(self, P, fs, deform_var_name):
+        """ Builds a representation and then stores the operator P in the dictionary.
+        """
+        representation = PF_t_input_repr(fs, def_var_name)
+        cache_t[representation] = P
+
+    def retrieve_PF_t(self, fs, deform_var_name):
+        """ Builds a representation and retrieves the PF operator from the cache (dictionary).
+        """
+        representation = PF_t_input_repr(fs, def_var_name)
+        return self.cache_t[representation]
+
+    
+
 
 # Classical assertions:
 def all_from_same_parent_ring(fs):
@@ -198,7 +283,7 @@ def identify_real_roots(f, prec=NUM_BITS_PRECISION, force_real=False):
     real_roots = [(root[0].real() if force_real else root[0])  for root in all_roots if abs(root[0].imag()) < 2^(-prec)]
     return real_roots
 
-def get_inside_branch_points(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION):
+def get_inside_branch_points(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION, debug_level=0):
     """ Return the branch points of prod(fs)-t, evaluated at def_value and var_value_pairs, that lie
     inside {f > 0} for all f in fs.
 
@@ -222,11 +307,20 @@ def get_inside_branch_points(fs, def_value, proj_var, var_value_pairs, prec=NUM_
 
     # Deform and compute branch points of the projection.
     fdef = partial_eval_poly(eval_poly(deformed_product(fs), [def_value]), var_value_pairs) 
-    bpoints = branch_points(fdef, proj_var, prec) 
-    
-    # Now identify the branchpoints satisfying f > 0 for all f in fs:
-    inside_branch_points = [point for point in bpoints if all([partial_eval_poly(f, point, infer_target_base_ring = True) > 0 for f in fs ])]
-    
+
+    fs_restricted = [partial_eval_poly(f, var_value_pairs) for f in fs]
+
+    try:
+        bpoints = branch_points(fdef, proj_var, prec) 
+
+        if debug_level > 0:
+            print("Computed critical points for the proj_var = {} are: {}".format(proj_var, bpoints))
+
+        # Now identify the branchpoints satisfying f > 0 for all f in fs:
+        inside_branch_points = [point for point in bpoints if all([partial_eval_poly(f, point, infer_target_base_ring = True) > 0 for f in fs_restricted ])]
+    except PosDimCritLocusError as error:
+        print("Critical locus of projection is positive dimensional: {}".format(error))
+        raise error
     return inside_branch_points
 
 def branch_points(f, proj_var, prec=NUM_BITS_PRECISION):
@@ -254,13 +348,14 @@ def branch_points(f, proj_var, prec=NUM_BITS_PRECISION):
 
     # Now solve the ideal, assuming it is just a collection of points.
     # TODO: Can essentially remove the the assertion, as it will be necessarily true. Why?
-    assert(R.ideal(system).dimension() == 0)
+    if R.ideal(system).dimension() != 0:
+        raise PosDimCritLocusError("The system {} is not 0 dimensional! It has dim = {}".format(system, R.ideal(system).dimension()))
 
     variety = variety_msolve(system, prec)
 
     return variety
 
-def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION):
+def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION, debug_level=0):
     """ Computes the minimum and maximum value that proj_var takes on the deformed volume_intersection,
     after restricting to the chosen var_value_pairs.
 
@@ -292,10 +387,76 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec
         return [{proj_var:point[proj_var]} for point in branch_points(fs[0], proj_var, prec)]    
 
     # Now identify the branchpoints satisfying f >= 0 for all f in fs:
-    inside_branch_points = get_inside_branch_points(fs, def_value, proj_var, var_value_pairs, prec)
+    try:
+
+        # TODO: Rename this to inside critical points!
+        inside_branch_points = get_inside_branch_points(fs, def_value, proj_var, var_value_pairs, prec, debug_level=debug_level)
+        # Now return only the proj_var values 
+        return [{proj_var:point[proj_var]} for point in inside_branch_points]
+
+    except PosDimCritLocusError:
+        # In this case we are computing points in the complement instead:
+        print("Reverting to computing the relevant critical values using HypersurfaceRegions.jl")
+
+        fdef = partial_eval_poly(eval_poly(deformed_product(fs), [def_value]), var_value_pairs)
+        
+        # Compute the polynomial defining the critical locus:
+        crit_val_ideal = branchIdeal(fdef, proj_var)
+        if len(crit_val_ideal.gens()) != 1:
+            raise ValueError("Expected ideal of critical values to have only one generator. Instead got: {}".format(crit_val_ideal))
+        
+        # Extract the polynomial. Ideally, we should map it to the same ring as fdef, but this is not necessary here.
+        crit_val_poly = crit_val_ideal.gens()[0]
+        pot_crit_vals = crit_val_poly.roots(AA, multiplicities=False) 
+        
+        print("pot_crit_vals: ", pot_crit_vals)
+
+        # Setting up the input to julia:
+        print("using HypersurfaceRegions")
+        print("@var " + " ".join([str(xi) for xi in fdef.parent().gens()]) + ";")
+        print("fdef = {};".format(str(fdef)))
+        print("critValPoly = {};".format(str(crit_val_poly)))
+        print("system = [fdef;critValPoly];")
+        print("regs = regions(system);")
+        #print('println("[")')
+        print('println("["); for region in regs.region_list\n  println(string(region.critical_points[1]) * ",")\nend; println("]")')
+        #print('println("]")')
+
+        # TODO: Should actually make sure the precision is high enough!
+        sampled_points = sage_eval(input("Please input the sampled points from Julia as one line:"))
+        
+        # Todo do with a join
+        sampled_points = [dict( zip(fdef.parent().gens(), pnt) )  for pnt in sampled_points]
+        
+        print("\nReceived the sampled points: {}".format(sampled_points))
+
+        # Identify the relevant critical values (in the roots of crit_val_poly)
+
+        # Check which of the sample points lie in our region: fdef > 0 and fi > 0 for all fi in fs:
+        inside_points = []
+        for point in sampled_points:
+            # TODO: Can also merge the pnt with the var_value_pairs instead of restricting the polynomials.
+            # TODO: var_value pairs have QQ values and the point has real values.
+            if all([partial_eval_poly(fun, point | var_value_pairs ) > 0 for fun in [fdef] + fs]):
+                inside_points.append(point) 
+
+        print("The polys: ",[fdef] + fs)
+        print("Print inside_points: ", inside_points)
+        
+        minval_inside_points = min([pt[proj_var] for pt in inside_points])
+        maxval_inside_points = max([pt[proj_var] for pt in inside_points])
+
+        print("Min and max inside value:", minval_inside_points, maxval_inside_points)
+
+        relevant_crit_values_numerical = [ max([pt for pt in pot_crit_vals if pt < minval_inside_points]),
+                                 min([pt for pt in pot_crit_vals if pt > maxval_inside_points])
+        ]
+        
+        # print("The relevant critical values: ", relevant_crit_values_numerical)
+
+        return [{proj_var:val} for val in relevant_crit_values_numerical]
+
     
-    # Now return only the proj_var values 
-    return [{proj_var:point[proj_var]} for point in inside_branch_points]
 
 
 def get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy=None):
@@ -350,7 +511,7 @@ def annihilator_deformed_intersection(fs, deform_value, var_value_pairs, proj_va
     
     return annA
 
-def construct_integrand(fs, deform_value, var_value_pairs, proj_var):
+def construct_integrand(fs, deform_value, var_value_pairs, proj_var, prim_var_name=None):
     """ By standard considerations, see for example our paper, the function 
     vol(proj_var) can be expressed as period of a rational function A. 
     We construct this function rational function here, considering  closely the order of indeterminate variables
@@ -374,6 +535,10 @@ def construct_integrand(fs, deform_value, var_value_pairs, proj_var):
 
     prim_var = [var for var in fdef_ZZ.parent().gens() if not var == proj_var_ZZ][0] # TODO: Here taking the first, should make this more strategic here.
     
+    # TODO: Test this before committing.
+    if prim_var_name != None:
+        prim_var = fdef_ZZ.parent()(prim_var_name)
+
     sgn = (-1)^0 # TODO: Should depend on the choice of prim_var, to account for ordering.
 
     A = sgn * diff(fdef_ZZ, prim_var) * prim_var / fdef_ZZ # Automatically constructs the fraction field.
@@ -414,7 +579,7 @@ def get_picard_fuchs_t(fs, strategy=None):
     return intIdeal_t.gens()[0]
 
 
-def construct_integrand_t(fs, def_var_name, strategy=None):
+def construct_integrand_t(fs, def_var_name, strategy=None, prim_var_name=None):
     """ See construct_integrand(). Constructs the picard fuchs operator for the deformed slice
     vol(t) = vol({prod(fs)-t >= 0} \cap {fs >= 0})
 
@@ -435,6 +600,12 @@ def construct_integrand_t(fs, def_var_name, strategy=None):
 
     prim_var = [var for var in ft_flattened_ZZ.parent().gens() if not var == proj_var_ZZ][0] # TODO: Here taking the first, should make this more strategic here.
     
+    # TODO: Test this before committing.
+    if prim_var_name != None:
+        prim_var = ft_flattened_ZZ.parent()(prim_var_name)
+
+
+
     sgn = (-1)^0 # TODO: Should depend on the choice of prim_var, to account for ordering. (Or maybe it doesn't matter? Either does annihilate it.)
 
     At = sgn * diff(ft_flattened_ZZ, prim_var) * prim_var / ft_flattened_ZZ # Automatically constructs the fraction field.
@@ -471,7 +642,7 @@ def creative_telescoping(I, proj_var, strategy=None):
         ct_system = ct_ideal.ct(Dvar, certificates=False)
     return ct_system[0].parent().ideal(ct_system)
 
-def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_singular_points=[]):
+def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_singular_points=[], debug_level=0):
     """ Given a linear differential operator in 1 variable, i.e. an ODE, solve it given the provided initial conditions
     and output the value of the solution at the requested point.
 
@@ -514,6 +685,9 @@ def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_si
             --> Or all together change the accuracy! (e.g. to be input rather as decimal digits. e.g. as 1e-100)
 
     """
+
+    print("Entering the initial condition solver. ")
+
     # Assert that univariate differential operator
     assert(len(P.parent().gens()) == 1 and len(P.parent().base_ring().gens()) == 1)
 
@@ -563,7 +737,7 @@ def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_si
     # Read of the coefficient that we wanted to evaluate at:
     return eval_point_coefs[P.local_basis_monomials(eval_point).index((t-eval_point)^evaluation_condition["exponent"])]
 
-def volume1(fs, deform_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=None):
+def volume1(fs, deform_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=None, debug_level=0):
     """ Computes the smooth volume of the deformed intersection of lp balls. 
 
     Input
@@ -597,69 +771,96 @@ def volume1(fs, deform_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy
     """
     # The evaluated polynomial (for reference)
     evaluated_poly = partial_eval_poly(eval_poly(deformed_product(fs), [deform_value]), var_value_pairs)
-    #print(evaluated_poly)
+    if debug_level > 0:
+        print("Slice taken at: {}".format(var_value_pairs))
+        print("Restricted deformed product: {}".format(evaluated_poly))
 
     # Early exit if already univariate, then return 1-dim volume.
     if len(evaluated_poly.parent().gens()) == 1:
-        # print("Entering the 1 dim case for:", var_value_pairs, deform_value )
+        if debug_level > 0:
+            print("The restricted polynomial is univariate, hence going into the 1-dim-volume routine.")
         return get_1_dim_volume(fs, var_value_pairs, deform_value, prec)
 
     # Fix a projection variable (here just the first undetermined variable): 
-    proj_var = evaluated_poly.parent().gens()[0]
+
+    if strategy == None:
+        proj_var = evaluated_poly.parent().gens()[0]
+    else:
+        proj_var = strategy["proj_var"](fs, deform_value, var_value_pairs)
+
+    if debug_level > 0:
+        print("proj_var: {}".format(proj_var))
 
     # Get the Picard-Fuchs operator and define the operator to be solved.
     P = get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy)
     Pdx = P * P.parent().gens()[0]
-    # print("Order Pdx:", Pdx.order())
+
+    lead_coef = P.leading_coefficient().numerator()
+    singular_locus = lead_coef.roots(AA, multiplicities=False) 
+
+    if debug_level > 0:
+        print("\nOrder Pdx:", Pdx.order())
+        print("Leading coef:", Pdx.leading_coefficient())
+        print("Singular locus:", singular_locus)
+        if debug_level > 2:
+            print("Pdx = ", Pdx, "\n")
 
     # Determine the branch points and corresponding critical values bounding the deformed set.
     
     # Numerical critical values:
     relevant_crit_val = [pt[proj_var] for pt in project_deformed_intersection(fs, deform_value, proj_var, var_value_pairs, prec)]
-    # print("Relevant crit cal", relevant_crit_val)
+    if debug_level > 0:
+        print("Relevant crit vals:", relevant_crit_val)
 
-    assert(len(relevant_crit_val) == 2)
+    if len(relevant_crit_val) != 2:
+        raise ValueError("Computation returned too many (#={}) critical values: {}".format(len(relevant_crit_val), relevant_crit_val))
+    
     min_crit_val = min(relevant_crit_val)
     max_crit_val = max(relevant_crit_val)
 
-    # The singular locus in AA!!|| (exactly computed in QQbar - but need to identify reals) (from lead coef, casted to polynomial ring!)
-    lead_coef = P.leading_coefficient().numerator()
-    singular_locus = lead_coef.roots(AA, multiplicities=False) # identify_real_roots(lead_coef, prec, force_real=False) # solves in QQbar, but only takes the ones with small imaginary part.
-    # print("Singular locus:", singular_locus)
+    if debug_level > 0:
+        print("Relevant critical val: ".format(relevant_crit_val))
 
     # Set the interval in which we want to sample points, identify our branch points among
+    # TODO: Make sure that this uniquely identifies points of the singular locus.
     xmin = singular_locus[np.argmin([np.abs(root - min_crit_val) for root in singular_locus])]
     xmax = singular_locus[np.argmin([np.abs(root - max_crit_val) for root in singular_locus])]
+    
+    if debug_level > 0:
+        print("Identified the relevant critical values in the singular locus as: \nxmin = {}\nxmax = {}".format(xmin, xmax))
 
     # apparent singularities (that are not singularities of our solution:)
     xapparent = sorted([xi for xi in singular_locus if not xi in [xmin, xmax] and (xmin < xi) and (xi < xmax)])
 
-    # print("Xmin = ", xmin)
-    # print("xmax = ", xmax)
-
-    # print("Apparent Singular points = ", xapparent)
+    if debug_level > 0:
+        print("Apparent singular points in the interval: ", xapparent)
 
     # Determine points for initial data, such that transition matrix becomes invertible.
     CBF = ComplexBallField(prec)
-    initial_points = get_good_initial_points(P, CBF(xmin).real(), CBF(xmax).real())
-    # print("initial points:", initial_points)
+    initial_points = get_good_initial_points(P, CBF(xmin).real(), CBF(min(xapparent)).real(), debug_level=debug_level)
+    
+    if debug_level > 0:
+        print("sampled initial points:", initial_points)
 
     # Determine initial conditions (TODO: in parallel)
     #{"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
-    initial_conditions = {xmin:{"exponent":0, "coef":0}} | {xi:{"exponent":1, "coef":volume1(fs, deform_value, var_value_pairs | {proj_var:xi}, prec, strategy)} for xi in initial_points}
-
-    # print("Initial conditions", initial_conditions)
-    # print([(key.parent(), value["coef"].parent()) for key,value in initial_conditions.items()])
+    initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":volume1(fs, deform_value, var_value_pairs=var_value_pairs | {proj_var:proj_var_val}, prec=prec, strategy=strategy, debug_level=debug_level)} for proj_var_val in initial_points}
+    
+    if debug_level > 0:
+        print("Initial conditions", initial_conditions)
 
     evaluation_condition = {"pt":xmax, "exponent":0}
 
+    if debug_level > 0:
+        print("Eval condition: ", evaluation_condition)
+
     # Solve the initial value problem
-    volume = solve_diff_op(Pdx, initial_conditions, evaluation_condition, prec, xapparent)
+    volume = solve_diff_op(Pdx, initial_conditions, evaluation_condition, prec, xapparent, debug_level=debug_level)
 
     # Return the volume
     return volume
 
-def get_good_initial_points(P, x0, x1):
+def get_good_initial_points(P, x0, x1, debug_level=0):
     """ Provides n rational points strictly between x0 and x1, 
     where n is the order of the ordinary differential operator to be solved.
 
@@ -676,7 +877,7 @@ def get_good_initial_points(P, x0, x1):
     [TODO] Actually provide the invertibility check of the initial points.
     """
     n = P.order()
-    q = sample_n_rational_points(x0,x1,n)
+    q = sample_n_rational_points(x0,x1,n, debug_level=debug_level)
 
     # TODO: Actually check invertibility of the linear system.
     # Rmk: Note that with probability 1, the system is invertible. Ideally this check while solving the differential operator
@@ -685,7 +886,7 @@ def get_good_initial_points(P, x0, x1):
     return q
 
 
-def sample_n_rational_points(x0,x1,n, base=10):
+def sample_n_rational_points(x0,x1,n, base=10, debug_level=0):
     """ Linearly samples n rational points strictly between x0 and x1.
     Determines q_start and delta, accordingly, so that
 
@@ -702,6 +903,11 @@ def sample_n_rational_points(x0,x1,n, base=10):
     [TODO] - Print delta on demand. 
     [TODO] - Which log function is this? Is it accurate?
     """
+
+    if debug_level > 0:
+        print("Sampling n = {} many points between x0 = {} and x1 = {}.".format(n, x0, x1))
+        print("Chosen base = {}.".format(base))
+
     xmax = max(x0,x1).real()
     xmin = min(x0,x1).real()
 
@@ -722,7 +928,7 @@ def sample_n_rational_points(x0,x1,n, base=10):
     return q
 
 
-def volume2(fs, prec, strategy=None):
+def volume2(fs, prec, strategy=None, debug_level=0):
     """ Computes the volume of the intersection of the lp balls bigcap {f >= 0 } for f in fs.
 
     Input
@@ -737,8 +943,14 @@ def volume2(fs, prec, strategy=None):
     Remark
     ------
     [TODO] Change input actually to the points. This is what people will be using
+    [TODO] Add info here:
 
     """
+
+    if debug_level > 0:
+        print("Start of volume2:")
+        print("fs = {}".format(fs))
+
     # Early exit, if only 1 function:
     if len(fs) == 1:
         return volume1(fs,0, {}, prec, strategy)
@@ -749,9 +961,16 @@ def volume2(fs, prec, strategy=None):
     # Get Picard Fuchs
     Pt = get_picard_fuchs_t(fs, strategy)
 
+    if debug_level > 0:
+        print("Pt = ".format(Pt))
+
     # Choose initial points between 0 and the smallest singular point larger than 0.
     lead_coef = Pt.leading_coefficient().numerator()
     singular_locus = lead_coef.roots(AA, multiplicities=False)
+
+    if debug_level > 0:
+        print("Lead coef = {}".format(lead_coef))
+        print("Singular Locus = {}".format(singular_locus))
 
     assert(0 in singular_locus)
     index_zero = sorted(singular_locus).index(0)
@@ -761,8 +980,12 @@ def volume2(fs, prec, strategy=None):
     CBF = ComplexBallField(prec)
     initial_points = get_good_initial_points(Pt, 0, CBF(smallest_positive_singular_point).real())
 
+    print("Initial points for Pt: {}".format(initial_points))
+
     # Compute initial conditions (volumes of the t slices)
-    initial_conditions = {ti:{"exponent":0, "coef":volume1(fs, ti, {}, prec, strategy)} for ti in initial_points}
+    initial_conditions = {ti:{"exponent":0, "coef":volume1(fs, ti, var_value_pairs={}, prec=prec, strategy=strategy, debug_level=debug_level)} for ti in initial_points}
+
+    print("Initial conditions for Pt: {}".format(initial_conditions))
 
     # Set evaluation condition at 0
     evaluation_condition = {"pt":0, "exponent":0}

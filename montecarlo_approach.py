@@ -232,6 +232,27 @@ def previous_examples(num_samples, batch_size, seed):
 
 
 if __name__ == "__main__":
-    intersection_L_p_n_balls_shifted_by_basis_vectors(n=2,p=4,k=1)
-    previous_examples(1000000, 10000, 12345)
+    # intersection_L_p_n_balls_shifted_by_basis_vectors(n=2,p=4,k=1)
+    # previous_examples(1000000, 10000, 12345)
+
+    n=4
+    p=2
+
+
+    mus = [np.array([0,0,0,0]), np.array([1,0,0,0])]
+
+    ind_fun_unit_ball = lambda x_vec : p_norm_squared(x_vec - mus[0], p) <= 1
+
+    ind_fun_shifted_ball = lambda x_vec : p_norm_squared(x_vec - mus[1], p) <= 1
+
+    center_box = np.array([0,0,0,0])
+
+    radius_box = 1 # Note the intersection of unit ball and another ball will still be contained in the centered cube of radius 1.
+    num_samples = 100*1000*1000
+    batch_size = 1000
+    seed=1235612
+
+    volume_intersection_two_balls = montecarlo_support(n, [ind_fun_unit_ball, ind_fun_shifted_ball], 0, radius_box, num_samples, batch_size, seed)
+
+    print("The volume approximation: {}".format(volume_intersection_two_balls))
 
