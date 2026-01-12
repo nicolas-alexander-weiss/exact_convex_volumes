@@ -1,3 +1,9 @@
+
+def last_variable_proj_var_strategy(fs, deform_value, var_value_pairs):
+    evaluated_poly = partial_eval_poly(eval_poly(deformed_product(fs), [deform_value]), var_value_pairs)
+
+    return evaluated_poly.parent().gens()[-1]
+
 def example1_reduced():
 
     n = 3
