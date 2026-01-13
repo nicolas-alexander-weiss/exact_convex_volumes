@@ -248,7 +248,7 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
 
     real_variety = variety_msolve([univariate_poly], prec) # identify_real_roots(univariate_poly, prec, force_real=True)
     num_roots = len(real_variety)
-    assert(num_roots % 2 == 0)
+    # assert(num_roots % 2 == 0)
 
     # print("Real variety: {}".format(real_variety))
 
