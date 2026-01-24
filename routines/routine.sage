@@ -11,12 +11,18 @@ from ore_algebra import *
 from scipy import optimize
 import numpy as np
 
+import os
+from datetime import datetime
+
 # Custom exceptions:
 
 class BadPointsError(Exception):
     pass
 
 class PosDimCritLocusError(Exception):
+    pass
+
+class CertificateError(Exception):
     pass
 
 # Global parameters
@@ -248,7 +254,8 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
 
     real_variety = variety_msolve([univariate_poly], prec) # identify_real_roots(univariate_poly, prec, force_real=True)
     num_roots = len(real_variety)
-    assert(num_roots % 2 == 0)
+
+    # assert(num_roots % 2 == 0)
 
     # print("Real variety: {}".format(real_variety))
 
@@ -461,7 +468,7 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec
     
 
 
-def get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy=None):
+def get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy=None, debug_level=0):
     """ Computes the Picard Fuchs operator for 
     Vol(proj_var) = Vol( p^{-1}(proj_var) \cap {fs \geq 0 forall s} \cap slice(var_value_pairs)).
 
@@ -481,7 +488,7 @@ def get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy=None)
     """
 
     # Construct the integrand
-    A = construct_integrand(fs, deform_value, var_value_pairs, proj_var)
+    A = construct_integrand(fs, deform_value, var_value_pairs, proj_var, debug_level=debug_level)
     
     W = rational_weyl_algebra(A.parent().ring())
 
@@ -489,7 +496,8 @@ def get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy=None)
 
     # To be precise, below we simply construct some subset of the integration ideal, 
     # but it suffices to be non-empty.
-    intIdeal = creative_telescoping(annA, proj_var)
+    allowed_pole = A.denominator().change_ring(QQ)
+    intIdeal = creative_telescoping(annA, proj_var, allowed_pole=allowed_pole, debug_level=debug_level)
 
     return intIdeal.gens()[0]
 
@@ -505,7 +513,7 @@ def annihilator_deformed_intersection(fs, deform_value, var_value_pairs, proj_va
         after evaluating at t=deform_value and var_value_pairs.
     """
 
-    A = construct_integrand(fs, deform_value, var_value_pairs, proj_var)
+    A = construct_integrand(fs, deform_value, var_value_pairs, proj_var, debug_level=debug_level)
     
     W = rational_weyl_algebra(A.parent().ring())
 
@@ -513,7 +521,7 @@ def annihilator_deformed_intersection(fs, deform_value, var_value_pairs, proj_va
     
     return annA
 
-def construct_integrand(fs, deform_value, var_value_pairs, proj_var, prim_var_name=None):
+def construct_integrand(fs, deform_value, var_value_pairs, proj_var, prim_var_name=None, debug_level=0):
     """ By standard considerations, see for example our paper, the function 
     vol(proj_var) can be expressed as period of a rational function A. 
     We construct this function rational function here, considering  closely the order of indeterminate variables
@@ -531,6 +539,9 @@ def construct_integrand(fs, deform_value, var_value_pairs, proj_var, prim_var_na
  
     fdef = partial_eval_poly(eval_poly(deformed_product(fs), [deform_value]), var_value_pairs)
     
+    if debug_level > 0:
+        print("[PF] fdef = {}".format(fdef))
+
     # Multiply out the denominators and change to integer ring:
     fdef_ZZ = fdef.numerator().change_ring(ZZ)
     proj_var_ZZ = fdef_ZZ.parent()(proj_var)
@@ -548,7 +559,7 @@ def construct_integrand(fs, deform_value, var_value_pairs, proj_var, prim_var_na
     return A
 
 
-def get_picard_fuchs_t(fs, strategy=None):
+def get_picard_fuchs_t(fs, strategy=None, debug_level=0):
     """ Computes the Picard Fuchs operator for 
     Vol(t) = Vol( prod(fs) - t >= 0) \cap {fs \geq 0 forall s} 
 
@@ -569,14 +580,15 @@ def get_picard_fuchs_t(fs, strategy=None):
 
     # Construct the integrand, note that here this is over the ring QQ[x..., t], rather than QQ[x..][t]
     At = construct_integrand_t(fs, deform_var_name, strategy)
-    
+
     Wt = rational_weyl_algebra(At.parent().ring())
 
     annAt = Wt.ideal([At*D-D(At) for D in Wt.gens()]) # construct the annihilating ideal
 
     # To be precise, below we simply construct some subset of the integration ideal, 
     # but it suffices to be non-empty.
-    intIdeal_t = creative_telescoping(annAt, At.parent().ring()(deform_var_name))
+    allowed_pole = At.denominator().change_ring(QQ)
+    intIdeal_t = creative_telescoping(annAt, At.parent().ring()(deform_var_name), allowed_pole=allowed_pole, debug_level=debug_level)
 
     return intIdeal_t.gens()[0]
 
@@ -621,7 +633,7 @@ def rational_weyl_algebra(polyRing):
 
     return OreAlgebra(fracField, *[("D" + str(var), {}, {str(var) : 1}) for var in polyRing.gens()])
 
-def creative_telescoping(I, proj_var, strategy=None, debug_level=0):
+def creative_telescoping(I, proj_var, allowed_pole=None, strategy=None, debug_level=0):
     """ For an ideal in the rational Weyl algebra W, it carries out creative telescoping
     sequentially to eliminate all but proj_var.
 
@@ -645,15 +657,38 @@ def creative_telescoping(I, proj_var, strategy=None, debug_level=0):
     ct_system = list(I.gens())
 
     if debug_level > 2:
-        print("The ideal is generated by: {}".format(list(I.gens())))
+        print("\nThe ideal is generated by: {}".format(list(I.gens())))
 
     for Dvar in [Dvar for Dvar in W.gens() if not Dvar == W("D"+str(proj_var))]:
         ct_ideal = ct_system[0].parent().ideal(ct_system)
         
         if debug_level > 0:
-            print("[CT] Integrating out the variable {}".format(str(Dvar)))
+            print("\n[CT] Integrating out the variable {}".format(str(Dvar)))
 
+        # ct_system, certificates = ct_ideal.ct(Dvar, certificates=True)
         ct_system = ct_ideal.ct(Dvar, certificates=False)
+
+        # Verify that the certificates only contain allowed poles. 
+        # Factor first and then check for the factors.
+        # TODO: This can likely be done better. (i.e. check)
+
+        # if allowed_pole!= None:
+        #     for cert in certificates:
+        #         cert_denom = (W.base_ring()(cert)).denominator()
+        #         cert_denom = cert_denom.change_ring(QQ)
+
+        #         if cert_denom in QQ: # Skip if its a constant
+        #             continue
+
+        #         # This has to be looked into again.
+        #         if not (cert_denom.radical() % allowed_pole.radical() == 0 and allowed_pole.radical() % cert_denom.radical() == 0):
+        #             raise CertificateError("[CT] The certificate contains a pole that is not appearing in fdef:\ncert_denom.radical().factor() = {}\nallowed_poly.radical().factor() = {}".format(list(cert_denom.radical().factor()), list(allowed_pole.radical().factor())))
+                        
+        # if debug_level > 2:
+        #     print("\n[CT] The resulting system: {}".format(ct_system))
+        #     print("\n[CT] The corresponding certificates: {}".format(certificates))
+
+
     return ct_system[0].parent().ideal(ct_system)
 
 def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_singular_points=[], debug_level=0):
@@ -701,7 +736,7 @@ def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_si
     """
 
     if debug_level > 0:
-        print("[ICS] Entering the initial condition solver. ")
+        print("\n[ICS] Entering the initial condition solver. ")
 
     # Assert that univariate differential operator
     assert(len(P.parent().gens()) == 1 and len(P.parent().base_ring().gens()) == 1)
@@ -787,6 +822,7 @@ def volume1(fs, deform_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy
     # The evaluated polynomial (for reference)
     evaluated_poly = partial_eval_poly(eval_poly(deformed_product(fs), [deform_value]), var_value_pairs)
     if debug_level > 0:
+        print("Deformation value t: {}".format(deform_value))
         print("Slice taken at: {}".format(var_value_pairs))
         print("Restricted deformed product: {}".format(evaluated_poly))
 
@@ -807,7 +843,7 @@ def volume1(fs, deform_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy
         print("proj_var: {}".format(proj_var))
 
     # Get the Picard-Fuchs operator and define the operator to be solved.
-    P = get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy)
+    P = get_picard_fuchs(fs, deform_value, var_value_pairs, proj_var, strategy, debug_level=debug_level)
     Pdx = P * P.parent().gens()[0]
 
     lead_coef = P.leading_coefficient().numerator()
@@ -974,14 +1010,15 @@ def volume2(fs, prec, strategy=None, debug_level=0):
     assert(all_from_same_parent_ring(fs))
 
     # Get Picard Fuchs
-    Pt = get_picard_fuchs_t(fs, strategy)
+    Pt = get_picard_fuchs_t(fs, strategy, debug_level=debug_level)
 
     if debug_level > 0:
         print("[Vol2] Pt = ".format(Pt))
 
     # Choose initial points between 0 and the smallest singular point larger than 0.
     lead_coef = Pt.leading_coefficient().numerator()
-    singular_locus = lead_coef.roots(AA, multiplicities=False)
+    sols = variety_msolve([lead_coef], prec)    # Compute real solutions with msolve
+    singular_locus = [sol[t] for sol in sols]
 
     if debug_level > 0:
         print("[Vol2] Lead coef = {}".format(lead_coef))

@@ -339,10 +339,45 @@ def example_translation_RR4():
     vol = volume2(fs, prec, strategy=strategy, debug_level=3)
 
     print("The volume = {}".format(vol))
+ 
+
+def bad_certificates_example():
+    """ The singular locus of the operator doesn't seem to contain all the critical values of
+    the geometric setting.
+    """
+
+    n = 3
+    p = 2
+
+    prec = 200
+
+    S = PolynomialRing(QQ, "x", n)
+    x = S.gens()
+
+    mus = [[0,0,0], [1,0,0]]
+
+    fs = [shifted_lp_poly(S, p, mu) for mu in mus]
+
+    print(fs)
+
+    deform_val = 1/1000
+
+    proj_var = x[0]
+
+    
+
+    P = get_picard_fuchs(fs, deform_val, {}, proj_var, debug_level=3)
+
+    lc = P.leading_coefficient()
+
+    singular_locus = lc.numerator().roots(AA, multiplicities=False) 
+
+    print("P = {}".format(P))
+    print("lc = {}".format(lc))
+    print("singular locus = {}".format(singular_locus))
 
 
-def example_translation_RR4_MC():
-    """Verify the above with monte carlo.""" 
+
 
 if __name__ == "__main__":
     #example1()
@@ -351,5 +386,6 @@ if __name__ == "__main__":
 
     # the_positive_dim_crit_locus_example()
 
-    example_translation_RR4()
+    #example_translation_RR4()
+    pass
     
