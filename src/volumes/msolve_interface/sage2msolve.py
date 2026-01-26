@@ -19,7 +19,7 @@ from datetime import datetime
 
 from sage.all import (
                         
-    QQ,
+    QQ,ZZ,
     diff,
     sage_eval,
     RealBallField, 
@@ -50,7 +50,8 @@ def branch_points_system(f, proj_var):
     but has to be flattened first.
     """
 
-    assert(f.parent().base_ring() == QQ)
+    if not (f.base_ring() == QQ or f.base_ring() == ZZ): 
+        raise ValueError(f"Assumed polynomials to be over QQ, but got: {f.base_ring()}")
 
     return [f] + [diff(f, var) for var in f.parent().gens() if not (var == proj_var)]
 
@@ -67,8 +68,11 @@ def write_msolve_file(system, file_name, characteristic=0):
     """
 
     # Check that base_ring is QQ and that all polynomials lie in the same ring.
-    assert(system[0].base_ring() == QQ)
-    assert(all([poly.base_ring() == system[0].base_ring() for poly in system]))
+    if not (system[0].base_ring() == QQ or system[0].base_ring() == ZZ): 
+        raise ValueError(f"Assumed polynomials to be over QQ or ZZ, but got: {system[0].base_ring()}")
+
+    if not all([poly.base_ring() == system[0].base_ring() for poly in system]):
+        raise ValueError(f"Polynomials are not all in the same ring, but got: {[poly.base_ring() for poly in system]}")
 
     poly_ring = system[0].parent()
 
@@ -176,8 +180,13 @@ def variety_msolve(system, prec):
     # Assert that all polynomials are from the same ring and over QQ.
     R = system[0].parent()
 
-    assert(all([R == poly.parent() for poly in system]))
-    assert(R.base_ring() == QQ)
+    # Check that base_ring is QQ and that all polynomials lie in the same ring.
+    if not (R.base_ring() == QQ or R.base_ring() == ZZ) : 
+        raise ValueError(f"Assumed polynomials to be over QQ or ZZ, but got: {R.base_ring()}")
+
+    if not all([poly.parent() == R for poly in system]):
+        raise ValueError(f"Polynomials are not all in the same ring, but got: {[poly.parent() for poly in system]}")
+
 
     # Create a msolve_tmp folder if doesn't exist.
     msolve_tmp_folder_name = "msolve_tmp"

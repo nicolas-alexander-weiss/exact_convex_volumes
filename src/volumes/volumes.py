@@ -853,8 +853,8 @@ def sample_n_rational_points(x0,x1,n, base=10, debug_level=0):
         print("Sampling n = {} many points between x0 = {} and x1 = {}.".format(n, x0, x1))
         print("Chosen base = {}.".format(base))
 
-    xmax = max(x0,x1).real()
-    xmin = min(x0,x1).real()
+    xmax = max(x0,x1)
+    xmin = min(x0,x1)
 
     # Determine integer N, such that 10^N < xmax-xmin 
     N = np.floor(log(xmax-xmin)/log(base))
@@ -906,6 +906,7 @@ def volume2(fs, prec, strategy=None, debug_level=0):
 
     # Get Picard Fuchs
     Pt = get_picard_fuchs_t(fs, strategy, debug_level=debug_level)
+    t = Pt.parent().base_ring().gens()[0]
 
     if debug_level > 0:
         print("[Vol2] Pt = ".format(Pt))
