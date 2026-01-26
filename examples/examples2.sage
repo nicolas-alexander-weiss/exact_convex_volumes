@@ -1,4 +1,12 @@
-load("routine.sage")
+#
+# Add path to the package.
+import sys
+sys.path.append("../src/volumes")
+
+from volumes import *
+from tools import *
+
+
 
 def last_variable_proj_var_strategy(fs, deform_value, var_value_pairs):
     evaluated_poly = partial_eval_poly(eval_poly(deformed_product(fs), [deform_value]), var_value_pairs)

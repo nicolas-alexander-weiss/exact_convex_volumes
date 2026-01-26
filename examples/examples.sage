@@ -1,7 +1,15 @@
 """ TODO: Create a list of relevant examples.
 """
 
-load("routine.sage")
+#
+# Add path to the package.
+import sys
+sys.path.append("../src/volumes")
+
+from volumes import *
+from tools import *
+
+
 
 def example1():
     """ Two l2 balls in RR^4, centered at [0,0,0,0] and [1,0,0,0].
@@ -317,7 +325,6 @@ def the_positive_dim_crit_locus_example():
     proj_var = x[0]
     print("Trying to compute the relevant critical values of the projection onto the {}-axis:".format(proj_var))
     
-
     relevant_crit_vals = project_deformed_intersection(fs, def_value, proj_var, {}, prec=NUM_BITS_PRECISION)
     
     print("The relevant_crit_vals: ", relevant_crit_vals)
