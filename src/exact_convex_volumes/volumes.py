@@ -23,6 +23,101 @@ from sage.all import (
     sage_eval
 )
 
+#
+# Volumes as objects
+#
+
+
+#
+# Volumes as objects:
+#
+
+class SmoothVolume:
+    """ SmoothVolume is the object which holds all intermediate results of the 
+    smooth volume computation. In particular, they usually hold all the parameters
+    with which the smooth volume function were computed.
+
+    Features:
+    - [TODO] Resume computations when they were aborted.
+    - [TODO] Obtain insights into the computation afterwards
+    - [TODO] Allows for recomputation with increased precision.
+
+    Other:
+    - [TODO] Have suitable getter and setter functions?
+
+    """
+
+    debug_level = 0 # Indicating amount of extra info printed during computation.
+
+    def __init__(self, fs, def_value, var_value_pairs, prec):
+        """
+        Docstring for __init__
+        
+        fs : list of multivariate polynomials over QQ
+        def_value : non-negative element in QQ
+        var_value_pairs : Dictionary with  variable:value   key-value-pairs, where value is in QQ.
+        prec : Number of binary digits of precision, i.e. an accuracy of 2^{-prec}.
+        """
+        self.fs =  fs
+        self.def_value = def_value
+        self.var_value_pairs = var_value_pairs
+
+        self.prec = prec
+        
+        self.initial_data = {} # dict indexed by elements of QQ with values SmoothVolume
+        self.vol = None # in CBF(prec)
+
+    def get_fdef(self):
+        return tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(self.fs), [self.def_value]), self.var_value_pairs) 
+
+    def is_one_dim(self):
+        """
+        Returns true if only one free variable remains after 
+        fixing all values in self.var_value_pairs.
+        """
+        return self.get_fdef().parent().ngens() == 1
+
+
+    def start_computation(self):
+        """ Runs the computation based on the provided data.
+        Picard-Fuchs-operators
+
+        [TODO] Allow for resumption of computation at later point.
+        """
+        pass
+
+    def get_volume(self):
+        """
+        Returns the volume of the semi-algebraic set defined by
+        {prod(fs)-def_val>0} \cap C \cap {var_value_pairs}.
+        """
+        if self.vol == None:
+            self.start_computation()
+        
+        return self.vol
+
+
+class Volume:
+    """ This class encapsulates the computation of volume2.
+    In particular, it only considers a list of fs and then 
+    carries out the necessary computations.
+
+    Input
+    -----
+    fs : List of concave polynomials in QQ[x_1,..,x_n].
+    prec : Target number of precision bits.
+
+    Features:
+    ------
+    - [TODO]: Ensure that precision is really the output precision.
+    
+    """
+    pass
+
+# 
+#
+#
+        
 # Custom exceptions:
 
 class BadPointsError(Exception):

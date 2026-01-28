@@ -11,6 +11,17 @@ from ore_algebra import *
 from scipy import optimize
 import numpy as np
 
+# Sage Imports
+
+from sage.all import (
+    ZZ, QQ, AA,
+    PolynomialRing,
+    RealBallField, ComplexBallField,
+    diff, log, power,
+    vector, matrix,
+    sage_eval
+)
+
 # Custom exceptions:
 
 class BadPointsError(Exception):
@@ -21,7 +32,8 @@ class PosDimCritLocusError(Exception):
 
 # Global parameters
 
-NUM_BITS_PRECISION = 20 # i.e. Precision of 1 / 2^NUM_BITS_PRECISION.
+NUM_BITS_PRECISION = 200 # i.e. Precision of 1 / 2^NUM_BITS_PRECISION.
+
 
 # Picard-Fuchs-Operator-Caching
 class PicardFuchsCache:
@@ -760,6 +772,7 @@ def volume1(fs, deform_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy
     fs : list of multivariate polynomials over QQ
     def_value : non-negative element in QQ
     var_value_pairs : Dictionary with  variable:value   key-value-pairs, where value is in QQ.
+    prec : Number of binary digits of precision, i.e. an accuracy of 2^{-prec}.
 
     Output
     ------
