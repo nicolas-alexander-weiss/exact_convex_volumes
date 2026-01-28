@@ -119,7 +119,23 @@ class PicardFuchsCache:
         representation = PicardFuchsCache.PF_t_input_repr(fs, def_var_name)
         return self.cache_t[representation]
 
-
+def get_inside_points(fs, var_value_pairs, points):
+    """
+    Returns those pts in points that lies in the restricted intersection of the fs,
+    i.e. they satisfy 
+        f(var_value_pairs | point) > 0 for all f in fs.
+    
+    Input
+    --------
+    fs : Polynomials over QQ of the same polynomial ring, common positivity locus defining the region of interest.
+    var_value_pairs : At which the above expression will be evaluated.
+    points : Points in the remaining variables that shall be checked for containment.
+    """
+    fs_restricted = [tools.partial_eval_poly(f, var_value_pairs) for f in fs]
+    # for pt in points:
+    #     print([tools.partial_eval_poly(f, pt, infer_target_base_ring = True)  for f in fs_restricted ])
+    return [pt for pt in points if all([tools.partial_eval_poly(f, pt, infer_target_base_ring = True) > 0 for f in fs_restricted ])]
+    
 
 def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
     """ In the setting of shifted lp-balls for p even, this return volume of the 
@@ -158,16 +174,37 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
     univariate_poly = tools.partial_eval_poly(def_poly, var_value_pairs) 
     var_name = univariate_poly.parent().gens()[0]
 
-    # HEURISTIC: The relevant line segment is bounded by the middle two real roots of univariate_poly,
-    # see also the respective proposition in our paper. Will have evenly many roots in this setting.
-
-    # Note: Also the real roots are only "real" with the given precision.
-
-    real_variety = msolve.variety_msolve([univariate_poly], prec) # identify_real_roots(univariate_poly, prec, force_real=True)
+    # Solutions
+    real_variety = msolve.variety_msolve([univariate_poly], prec) 
     num_roots = len(real_variety)
+
+    print("real variety = {}".format(real_variety))
     
     if not (num_roots >= 2):
-        raise ValueError(f"[1DimVol] Expected slice at to intersect in at least two points, but got {num_roots} for def_value ={def_value} and var_value_pairs = {var_value_pairs}).")
+        raise ValueError(f"[1DimVol] Expected slice at to intersect in at least two points, but got {num_roots} for def_value ={def_value} and var_value_pairs = {var_value_pairs}.")
+
+    real_values = []
+    if len(fs) == 1 and def_value == 0:
+        # There is a single undeformed concave polynomial. In that case, there exist
+        # just two intersection points:
+        if not (num_roots == 2):
+            raise ValueError(f"[1DimVol] For a non-deformed single polynomial, expected exactly two points in the intersection, but got {num_roots} for def_value ={def_value} and var_value_pairs = {var_value_pairs}.")
+        real_values = [pt[var_name] for pt in real_variety]
+    else:
+        # Extract the pts that lie inside f > 0 for all f in fs:
+        pts_inside_intersection = get_inside_points(fs, var_value_pairs, real_variety)
+        if not (len(pts_inside_intersection) == 2):
+            raise ValueError(f"[1DimVol] In the concave case, lines can intersect the deformed intersection only in 2 pts, but got {pts_inside_intersection} for def_value ={def_value} and var_value_pairs = {var_value_pairs}.")
+        real_values = [pt[var_name] for pt in pts_inside_intersection]
+
+    real_values.sort()
+
+    # It is ensured by the above that there are exactly 2 points:
+    return real_values[1] - real_values[0]
+
+
+    # OLD HEURISTIC: The relevant line segment is bounded by the middle two real roots of univariate_poly,
+    # see also the respective proposition in our paper. Will have evenly many roots in this setting.
 
     # Sort the roots in increasing order:
     real_values = [pt[var_name] for pt in real_variety]
@@ -175,7 +212,7 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
     # print("Real values: {}".format(real_values))
 
     # The following difference will necesarily be positive.
-    # [TODO] This uses the fact that in the concave setting,
+    # [TODO] This uses the fact that in the lp ball setting,
     #           the relevant intersection points will be the middle two.
     #           Should change this to the msolve base approach. 
     #           (Since we just need to check what leads to positive values.)
@@ -207,7 +244,7 @@ def get_inside_critical_points(fs, def_value, proj_var, var_value_pairs, prec=NU
     # Deform and compute branch points of the projection.
     fdef = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [def_value]), var_value_pairs) 
 
-    fs_restricted = [tools.partial_eval_poly(f, var_value_pairs) for f in fs]
+    #fs_restricted = [tools.partial_eval_poly(f, var_value_pairs) for f in fs]
 
     try:
         crit_points = get_critical_points(fdef, proj_var, prec) 
@@ -216,7 +253,9 @@ def get_inside_critical_points(fs, def_value, proj_var, var_value_pairs, prec=NU
             print("Computed critical points for the proj_var = {} are: {}".format(proj_var, crit_points))
 
         # Now identify the critical points satisfying f > 0 for all f in fs:
-        inside_crit_points = [point for point in crit_points if all([tools.partial_eval_poly(f, point, infer_target_base_ring = True) > 0 for f in fs_restricted ])]
+        inside_crit_points = get_inside_points(fs, var_value_pairs, crit_points)
+        
+        #[point for point in crit_points if all([tools.partial_eval_poly(f, point, infer_target_base_ring = True) > 0 for f in fs_restricted ])]
     
     except PosDimCritLocusError as error:
         print("Critical locus of projection is positive dimensional: {}".format(error))
