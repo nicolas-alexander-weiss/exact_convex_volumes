@@ -37,7 +37,7 @@ class CertificateError(Exception):
 
 # Global parameters
 
-NUM_BITS_PRECISION = 20 # i.e. Precision of 1 / 2^NUM_BITS_PRECISION.
+NUM_BITS_PRECISION = 200 # i.e. Precision of 1 / 2^NUM_BITS_PRECISION.
 
 # Picard-Fuchs-Operator-Caching
 class PicardFuchsCache:
