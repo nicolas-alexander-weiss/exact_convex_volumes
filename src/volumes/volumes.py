@@ -910,6 +910,8 @@ def volume2(fs, prec, strategy=None, debug_level=0):
 
     if debug_level > 0:
         print("[Vol2] Pt = ".format(Pt))
+        print("[Vol2] order(Pt) = {}".format(Pt.order()))
+
 
     # Choose initial points between 0 and the smallest singular point larger than 0.
     lead_coef = Pt.leading_coefficient().numerator()
