@@ -115,15 +115,17 @@ def read_msolve_output(file_name):
         line3 = in_file.readline().strip()
 
         # Assert the common structure
-        assert(line1[0] == "[")
-        assert(line1[-1] == ",")
-        assert(line2[:2] == "[[")
-        assert(line3[:3] == "]]:")
-
+        if not ((line1[0] == "[") 
+                and (line1[0] == "[") 
+                and (line1[-1] == ",")
+                and (line2[:1] == "[")
+                and (line3[:3] == "]]:")):
+            raise ValueError(f"[msolve] Output has the wrong format.\nRead in: {line1}\n{line2}\n{line3}")
+    
         # Concatenate and evaluate as sage literal. The coordinates, should be correctly parsed in QQ.
 
         return sage_eval(line1 + line2 + line3[:-1])
-        
+
 def extract_msolve_solutions(msolve_out_object, vars, real_ball_field):
     """ Read the solution out of the list of lists.
 
@@ -141,21 +143,26 @@ def extract_msolve_solutions(msolve_out_object, vars, real_ball_field):
     ms_out = msolve_out_object
 
     # Check that the output is a 0-dimensional variety.
-    assert(ms_out[0] == 0)
+    if not (ms_out[0] == 0):
+        raise ValueError(f"[msolve] Solutions is not 0 dimensional!\nRead in: {msolve_out_object}")
     
     # Check that the next list has two elements
-    assert(len(ms_out[1]) == 2)
+    if not (len(ms_out[1]) == 2):
+        raise ValueError(f"[msolve] Output has the wrong format.\nRead in: {msolve_out_object}")
+    
     num_solution_lists = ms_out[1][0]
     solution_lists = ms_out[1][1:]
 
-    # Assert that as many coordinates as variables are provided
-    assert(len(vars) == len(solution_lists[0][0]))
 
-  
     points = []
+
     RI = RealIntervalField(real_ball_field.prec())
     for solution_list in solution_lists:
         for solution in solution_list:
+            # Assert that as many coordinates as variables are provided
+            if not (len(vars) == len(solution)):
+                raise ValueError(f"[msolve] Number of variables #({vars}) does not match number of coordinates in solution {solution}")
+
             # Turn the intervals into elements of the real ball field.
             sol = {
                     var:real_ball_field(RI(*interval))  for var,interval in zip(vars,solution)
@@ -176,6 +183,11 @@ def variety_msolve(system, prec):
     -----
     A variety encode as a list of points [pt, pt, pt], where each point is a dictionary {x:.., y:.., z:..} with 
     keys being the variable names and values in the real ball field with 200 bits precision.
+    
+    Caveats
+    --------
+    - [TODO] So far causes an assertion error if the is intersection is empty. This should be checked separately.
+    
     """
     # Assert that all polynomials are from the same ring and over QQ.
     R = system[0].parent()

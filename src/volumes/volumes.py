@@ -165,9 +165,9 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
 
     real_variety = msolve.variety_msolve([univariate_poly], prec) # identify_real_roots(univariate_poly, prec, force_real=True)
     num_roots = len(real_variety)
-    # assert(num_roots % 2 == 0)
-
-    # print("Real variety: {}".format(real_variety))
+    
+    if not (num_roots >= 2):
+        raise ValueError(f"[1DimVol] Expected slice at to intersect in at least two points, but got {num_roots} for def_value ={def_value} and var_value_pairs = {var_value_pairs}).")
 
     # Sort the roots in increasing order:
     real_values = [pt[var_name] for pt in real_variety]
@@ -175,6 +175,10 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
     # print("Real values: {}".format(real_values))
 
     # The following difference will necesarily be positive.
+    # [TODO] This uses the fact that in the concave setting,
+    #           the relevant intersection points will be the middle two.
+    #           Should change this to the msolve base approach. 
+    #           (Since we just need to check what leads to positive values.)
     return real_values[num_roots // 2] - real_values[num_roots // 2 - 1]
 
 
