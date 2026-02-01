@@ -134,6 +134,7 @@ def volume_test_1():
     """ Test the 1 dimensional volume. 
     [TODO: Add more precise value comparison.]
     """
+
     n = 2
     p = 2
     mus = [[0,0],[1,0], [0,1]]
@@ -366,9 +367,9 @@ def long_test_1():
         fs = [tools.shifted_lp_poly(S, p, np.zeros((n,), int))]
         vol_p_n = volumes.volume1(fs, 0, {}, prec_bits)
 
-        print(f"Computed volume: {vol_p_n}")
-        print(f"Closed form volume: {vol_p_n_r_closed}")
-        print(f"Difference: {vol_p_n - vol_p_n_r_closed}")
+        # print(f"Computed volume: {vol_p_n}")
+        # print(f"Closed form volume: {vol_p_n_r_closed}")
+        # print(f"Difference: {vol_p_n - vol_p_n_r_closed}")
 
         # Both outputs will be in the complex ball field of the same precision. 
         # So we can compare if the mid point of the closed formula output lives in the output
@@ -383,6 +384,8 @@ def long_test_2():
 
         Vol(C) = base_area * height / 3
     """
+
+    print("[Long test 2] Test against closed form for vol of tetrahedron.")
 
     S = PolynomialRing(QQ, "x", 3)
     x = S.gens()
@@ -401,10 +404,22 @@ def long_test_2():
     assert(vol_exact in vol)
 
 
+def long_test_3():
+    """A cube in 3d"""
+
+    print("[Long test 3] Test against closed form for vol of cube.")
+    S = PolynomialRing(QQ, "x", 3)
+    x = S.gens()
+    fs = [x[0], x[1], x[2], 1 - x[0], 1 - x[1], 1 - x[2]]
+    vol = volumes.volume2(fs, prec=200)
+
+    assert(1 in vol)
+
+    
 
 
 
-long_tests = [long_test_1, long_test_2]
+long_tests = [long_test_1, long_test_2, long_test_3]
 
 
     
