@@ -1,4 +1,4 @@
-# volumes_of_b_balls
+# Exact Volumes of Semi-Algebraic Convex Bodies
 
 We provide a SageMath package to compute the exact volume of semi-algebraic convex bodies. The input consists of $k$ concave polynomials
 $$
