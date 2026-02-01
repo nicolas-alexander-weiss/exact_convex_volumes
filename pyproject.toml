@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "exact_convex_volumes"
+version = "0.0.1"
+authors = [
+  { name="Nicolas Weiss", email="nicolas.weiss@mis.mpg.de" },
+  { name="Lakshmi Ramesh", email="lramesh@math.uni-bielefeld.de" }
+]
+description = "This package implements algorithms to compute volumes of semi-algebraic convex bodies defined by concave polynomials."
+readme = "README.md"
+requires-python = ">=3.12.5"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "GPL-3.0-or-later"
+license-files = ["LICEN[CS]E*"]
+
+dependencies = [
+    "ore_algebra"
+]
+
+[project.urls]
+Homepage = "https://github.com/nicolas-alexander-weiss/exact_convex_volumes"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/exact_convex_volumes"
+]

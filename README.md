@@ -50,11 +50,11 @@ Begin by installing the requirements above.
 
 Instructions for installing the ore_algebra package can be found on their [Github page](https://github.com/mkauers/ore_algebra/). Note that Macaulay2 and msolve have to be accessible from the command line via "M2" and "msolve" respectively.
 
-Our package can be installed as follows:
+To install our package, download this repository and then install it via
 
-``Command to install this package.``
+``sage -pip install <path-to-"exact_convex_volumes"-repo>``
 
-If you would like to use it locally, you can download the code and link to the package src folder as done in the Jupyter notebooks found in this repo.
+If you would like to avoid installing the package you can simply add the folder "src" to the sys.path.
 
 
 
