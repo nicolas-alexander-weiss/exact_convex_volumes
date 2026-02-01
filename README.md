@@ -1,13 +1,11 @@
 # Exact Volumes of Semi-Algebraic Convex Bodies
 
 We provide a SageMath package to compute the exact volume of semi-algebraic convex bodies. The input consists of $k$ concave polynomials
-$$
-f_1,f_2,\ldots, f_k  \in  \mathbb{Q}[x_1,\ldots,x_n],
-$$
+$$ f_1,f_2,\ldots, f_k  \in  \mathbb{Q}[x_1,\ldots,x_n],$$
 where concave is defined by
 `` TODO definition.
 ``
-The output is a (real/complex) ball of radius $2^{-\operatorname{prec}}$ which contains the volume of the convex semi-algebraic set
+The output is a (real/complex) ball of radius $2^{-\text{prec}}$ which contains the volume of the convex semi-algebraic set
 $$C = \bigcap_i \{x \in \mathbb{R}^n \mid f_i(x) > 0\}.$$
 
 The computation of exact volumes of semi-algebraic convex bodies defined by finitely many concave polynomials is  motivated by geometric statistics, where intersections of convex bodies arise as maximum likelihood estimator (MLE) sets.
