@@ -56,5 +56,11 @@ To install our package, download this repository and then install it via
 
 If you would like to avoid installing the package you can simply add the folder "src" to the sys.path.
 
+## Generate Docs
 
+If you would like to browse the documentation to this package in an html page you can generate it with:
 
+``TODO: Add numpydoc code.``
+
+**ToDo**: 
+- [ ] Generate the docs automatically and host online.
