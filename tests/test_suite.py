@@ -1,13 +1,14 @@
 # Run with
 #           sage --python test_suite.py
 #
-# from the repository root directory
 
-#
-# Add path to the package.
-import sys
-sys.path.append("src/volumes")
+# Load the package from context if not globally installed
+from context import exact_convex_volumes
 
+# Load the sub-modules of the volumes package
+from exact_convex_volumes import volumes, tools
+from exact_convex_volumes import m2_interface as m2
+from exact_convex_volumes import msolve_interface as msolve
 
 # Sage imports
 from sage.all import (
@@ -26,8 +27,6 @@ import numpy as np
 # msolve interface tests:
 #
 
-import msolve_interface as msolve
-
 def msolve_test1():
     """ Compute the intersection of the unit ball and the x-axis.
     """
@@ -39,8 +38,6 @@ msolve_interface_tests = [msolve_test1]
 #
 # m2_interface tests:
 #
-
-import m2_interface as m2
 
 def m2_test_1():
     """ Test elimination function. Check that the projection of x^2 = y to the x axis gives everything.
@@ -55,8 +52,6 @@ m2_interface_tests = [m2_test_1]
 #
 # Tools tests:
 #
-
-import tools
 
 def tools_test_1():
     """ Build the lp poly centered at zero and test that the unit vectors are contained
@@ -134,8 +129,6 @@ tools_tests = [tools_test_1, tools_test_2, tools_test_3, tools_test_4, tools_tes
 #
 # Volume tests:
 #
-
-import volumes
 
 def volume_test_1():
     """ Test the 1 dimensional volume. 
