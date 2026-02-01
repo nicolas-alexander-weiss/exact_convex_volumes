@@ -916,22 +916,31 @@ def sample_n_rational_points(x0,x1,n, base=10, debug_level=0):
 
 
 def volume2(fs, prec, strategy=None, debug_level=0):
-    """ Computes the volume of the intersection of the lp balls bigcap {f >= 0 } for f in fs.
+    """ Computes the volume of semi-algebraic convex bodies.
 
-    Input
-    -----
-        fs : List of polynomials over QQ describing the shifted lp balls.
-        prec : Number of bits precision of the computation.
+    Assumes that convex body is then given as
+        C = {x in RR^n | f(x) > 0 for all f in fs}
+    where 
+        f is concave, for all f in fs.
+    
+    Parameters
+    ----------
+        fs : list of polys in QQ[x_1,..., x_n]
+            Concave polynomials defining the convex body.
+        prec : int
+            Number of binary digits of precision.
+        debug_level : int, optional
+            Amount of intermediate results to be printed.
+            
+    Returns
+    -------
+    sage.rings.complex_arb.ComplexBall
+        The volume of the convex body C with precision 2^{-prec}.
 
-    Output
+    Caveat
     ------
-    [TODO]
-
-    Remark
-    ------
-    [TODO] Change input actually to the points. This is what people will be using
-    [TODO] Add info here:
-
+    It is assumed that the convex body C is full-dimensional.
+    Concavity is NOT explicitly checked for.
     """
 
     if debug_level > 0:
@@ -991,21 +1000,11 @@ def volume2(fs, prec, strategy=None, debug_level=0):
     return volume
 
 
-
-    # TODO: Current issue: Throws the error we also had a while back, when it was complaining about "Macsyma"
-    # Back then we had to just change back to QQbar and then it worked again. Make sure to make analogous to the notebook computation and check the values.
-
-    # TODO: Also might simply collect the values one gets and then simply step through the reconstruction process. Check invertibility etc..
-    # TODO: Check again, if it simply works if the intersection of 2 polies slightly deformed. Then will have to add the path for analytic continuation!
-
-
-
-
 def vol_lp_ball_closed_formula(n,p,r, prec, use_complex=True):
     """ The closed formula for the volume of an Lp ball in R^n of radius r.
 
-    Uses the implementation of the gamma function in the complex resp real ball field.
-    The closed formula, according to (https://en.wikipedia.org/wiki/Volume_of_an_n-ball), 
+    Uses the implementation of the gamma function in the complex resp real ball 
+    field. The closed formula, see (en.wikipedia.org/wiki/Volume_of_an_n-ball),
     is given by:
                 Vol_{n,p,r} = r^n * (2 Gamma(1/p + 1))^n / Gamma(n/p + 1) 
 
