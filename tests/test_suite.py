@@ -377,7 +377,34 @@ def long_test_1():
         assert(vol_p_n_r_closed.mid() in vol_p_n)
 
 
-long_tests = [long_test_1]
+def long_test_2():
+    """ Computes the volume of a tetrahedron in 3d.
+    Recall it's formula is given by:
+
+        Vol(C) = base_area * height / 3
+    """
+
+    S = PolynomialRing(QQ, "x", 3)
+    x = S.gens()
+    fs = [x[0], x[1], x[2], QQ("1/3") - x[0] - x[1] - x[2]]
+    
+    vol = volumes.volume2(fs, prec=200)
+
+    base_area = QQ("1/3") * QQ("1/3") / 2
+    height = QQ("1/3")
+
+    vol_exact = base_area * height / 3
+
+    # print(f"vol {vol}")
+    # print(f"vol {vol_exact}")
+
+    assert(vol_exact in vol)
+
+
+
+
+
+long_tests = [long_test_1, long_test_2]
 
 
     
