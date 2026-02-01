@@ -1,10 +1,10 @@
 # sys.path.insert(0, '/Users/lakshmiramesh/Desktop/ore_algebra/src')
 
-# Helper Packages
+# Helper Modules
 
-import tools
-import msolve_interface as msolve
-import m2_interface as m2
+from . import tools
+from . import msolve_interface as msolve
+from . import m2_interface as m2
 
 # Ore Algebra Package
 
