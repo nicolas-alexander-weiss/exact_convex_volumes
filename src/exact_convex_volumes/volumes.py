@@ -1003,11 +1003,27 @@ def volume2(fs, prec, strategy=None, debug_level=0):
 
 def vol_lp_ball_closed_formula(n,p,r, prec, use_complex=True):
     """ The closed formula for the volume of an Lp ball in R^n of radius r.
+
     Uses the implementation of the gamma function in the complex resp real ball field.
+    The closed formula, according to (https://en.wikipedia.org/wiki/Volume_of_an_n-ball), 
+    is given by:
+                Vol_{n,p,r} = r^n * (2 Gamma(1/p + 1))^n / Gamma(n/p + 1) 
 
-    The closed formula, according to (https://en.wikipedia.org/wiki/Volume_of_an_n-ball), is given by:
-
-    Vol_{n,p,r} = r^n * (2 Gamma(1/p + 1))^n / Gamma(n/p + 1) 
+    Parameters
+    ----------
+    n : int
+        Dimension of RR^n.
+    p : int
+        Defining lp norm.
+    prec : int
+        Number of binary digits of precision.
+    use_complex : bool
+        Whether or not to produce output as complex ball (or real).
+    
+    Returns
+    -------
+    sage.rings.real_arb.RealBall
+        Volume of the Lp ball in R^n of radius r with precision 2^{-prec}.
     """
     if use_complex:
         BF = ComplexBallField(prec) 
