@@ -21,7 +21,8 @@ from sage.all import (
     PolynomialRing,
     RealBallField, ComplexBallField,
     diff, log, power,
-    vector, matrix
+    vector, matrix,
+    sage_eval
 )
 
 # Custom exceptions:
@@ -120,16 +121,22 @@ class PicardFuchsCache:
         return self.cache_t[representation]
 
 def get_inside_points(fs, var_value_pairs, points):
-    """
-    Returns those pts in points that lies in the restricted intersection of the fs,
-    i.e. they satisfy 
-        f(var_value_pairs | point) > 0 for all f in fs.
-    
-    Input
-    --------
-    fs : Polynomials over QQ of the same polynomial ring, common positivity locus defining the region of interest.
-    var_value_pairs : At which the above expression will be evaluated.
-    points : Points in the remaining variables that shall be checked for containment.
+    """ Returns all points that satisfy f(var_value_pairs | point) > 0 for all f in fs.
+
+    Parameters
+    ----------
+    fs : list of polys in QQ[x_1,..., x_n]
+        Concave polynomials defining the convex body.
+    var_value_pairs : dict of (x_i : val_x_i) pairs.
+        The QQ values of the x_i to which the fs should be restricted.
+    points : list of dict
+        Of pts, given each by {var_1 : val_1,... }.
+
+    Returns
+    -------
+    list of dict
+        A points that satisfy f(var_value_pairs | point) > 0 for all f in fs.
+
     """
     fs_restricted = [tools.partial_eval_poly(f, var_value_pairs) for f in fs]
     # for pt in points:
@@ -142,30 +149,31 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
     deformed intersection of lp-balls ((Prod fs) - t) after intersection with the line defined by the 
     coordinate values for all but one coordinate.
 
-    Input
-    ------
-        fs : List of polynomials in the same polynomial ring over QQ. 
-        var_value_pairs : List of pairs (variable, value)
-        def_value : Value, by which the product of the fs will be deformed.
-        prec : Natural number, defining precision up to 2^(-prec).
+    Parameters
+    ----------
+    fs : list
+        List of polynomials in the same polynomial ring over QQ. 
+    var_value_pairs : dict of (x_i : val_x_i) pairs.
+        The QQ values of the x_i to which the fs should be restricted.
+    def_value : QQ
+        Value, by which the product of the fs will be deformed.
+    prec : int
+        Number of binary digits of precision.
 
-    Output
+    Returns
     ------
-        Length of the line defined by var_value_pairs intersecting with the deformed intersection of the {f >= 0}.
+    RealBall
+        Length of the line segment defined by var_value_pairs intersecting with the deformed intersection of the {f >= 0}.
 
-    Caveat:
-    ------ 
+    Caveat
+    -------
         Assumes that the line actually intersects the deformed object and 
         that $t$ lies between 0 and the first critival value of the projection 
         from {(prod(fs) - t) = 0} to the t axis.
 
-    TODO
-    ------
-    # TODO: Raise error when variable appears twice. 
-    # TODO: Also need to make the caveat more precise.
-
-    [TODO] Rephrase both in terms of convexity, vs. just the two points within all the other {f > 0} for f in fs.
-            and then check that there are only two in the intersection.
+    TODOs
+    -----
+    - TODO: Raise error when variable appears twice. 
     """
     # Deform the product to prod(fs) - t by the specified value for t.
     def_poly = tools.eval_poly(tools.deformed_product(fs), def_value)
@@ -201,37 +209,25 @@ def get_1_dim_volume(fs, var_value_pairs, def_value, prec=NUM_BITS_PRECISION):
     return real_values[1] - real_values[0]
 
 
-    # OLD HEURISTIC: The relevant line segment is bounded by the middle two real roots of univariate_poly,
-    # see also the respective proposition in our paper. Will have evenly many roots in this setting.
-
-    # Sort the roots in increasing order:
-    real_values = [pt[var_name] for pt in real_variety]
-    real_values.sort()
-    # print("Real values: {}".format(real_values))
-
-    # The following difference will necesarily be positive.
-    # [TODO] This uses the fact that in the lp ball setting,
-    #           the relevant intersection points will be the middle two.
-    #           Should change this to the msolve base approach. 
-    #           (Since we just need to check what leads to positive values.)
-    return real_values[num_roots // 2] - real_values[num_roots // 2 - 1]
-
-
 def get_inside_critical_points(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION, debug_level=0):
-    """ Return the crit points of prod(fs)-t, evaluated at def_value and var_value_pairs, that lie
-    inside {f > 0} for all f in fs.
+    """ Return the crit points of prod(fs)-t, evaluated at def_value and var_value_pairs, that lie inside {f > 0} for all f in fs.
 
-    Input
-    ------
-        fs              : A list of multivariate polynomials
-        def_value       : In QQ, value by which the product is deformed.
-        proj_var        : The variable, such that we project onto the proj_var-axis.
-        var_value_pairs : The values already restricted to.
-    
-    Output
-    ------
-        inside_crit_points : List of points of the form {xi:valxi ... for all i}, where i 
-                                goes over all variables that remain after the value substitutions.
+    Parameters
+    ---------
+    fs              : list
+        A list of multivariate polynomials.
+    def_value       : QQ
+        Value by which the product is deformed.
+    proj_var        : variable
+        The variable, such that we project onto the proj_var-axis.
+    var_value_pairs : dict
+        The values already restricted to.
+
+    Returns
+    -------
+    inside_crit_points : list
+        List of points of the form {xi:valxi ... for all i}, where i 
+        goes over all variables that remain after the value substitutions.
 
     Remark
     ------
@@ -242,8 +238,6 @@ def get_inside_critical_points(fs, def_value, proj_var, var_value_pairs, prec=NU
     # Deform and compute branch points of the projection.
     fdef = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [def_value]), var_value_pairs) 
 
-    #fs_restricted = [tools.partial_eval_poly(f, var_value_pairs) for f in fs]
-
     try:
         crit_points = get_critical_points(fdef, proj_var, prec) 
 
@@ -253,8 +247,6 @@ def get_inside_critical_points(fs, def_value, proj_var, var_value_pairs, prec=NU
         # Now identify the critical points satisfying f > 0 for all f in fs:
         inside_crit_points = get_inside_points(fs, var_value_pairs, crit_points)
         
-        #[point for point in crit_points if all([tools.partial_eval_poly(f, point, infer_target_base_ring = True) > 0 for f in fs_restricted ])]
-    
     except PosDimCritLocusError as error:
         print("Critical locus of projection is positive dimensional: {}".format(error))
         raise error
@@ -262,26 +254,26 @@ def get_inside_critical_points(fs, def_value, proj_var, var_value_pairs, prec=NU
     return inside_crit_points
 
 def get_critical_points(f, proj_var, prec=NUM_BITS_PRECISION):
-    """ Computes all the real critical points, i.e. points on V(f) relative
-        to the projection onto the proj_var-axis.
+    """ Computes all the real critical points.
 
-        The critical points of the projection are the solutions to the ideal 
-            I = (f) + ( diff(f, x_i) | x_i != proj_var).
-        
-        The solutions are computed using groebner bases and real root isolation in msolve.
+    The critical points of the projection are the solutions to the ideal 
+        I = (f) + ( diff(f, x_i) | x_i != proj_var).
     
-    Input
-    ------
-        f : Multivariate polynomial over QQ
-        proj_var : A variable out of f.parent().gens()
+    The solutions are computed using groebner bases and real root isolation in msolve.
+    
+    Parameters
+    ----------
+    f : Polynomial in QQ[x_1,...,x_n]
+    proj_var : A variable out of f.parent().gens()
 
-    Output
-    ------
-        A representation of the critical points.
+    Returns
+    -------
+    critical_points : list of dict
+        The list of critical points represented by [{proj_var:value1}, {proj_var:value2},...]
 
-    Caveat
+    Raises
     ------
-        Raises a PosDimCritLocusError if the critical locus is not 0 dimensional.
+        PosDimCritLocusError if the critical locus is not 0 dimensional.
     """
     R = f.parent()
 
@@ -300,14 +292,22 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec
     """ Computes the minimum and maximum value that proj_var takes on the deformed volume_intersection,
     after restricting to the chosen var_value_pairs.
 
-    Input
-    -------
-        fs              : A list of multivariate polynomials
-        def_value       : In QQ, value by which the product is deformed.
-        proj_var        : The variable, such that we project onto the proj_var-axis.
-        var_value_pairs : The values already restricted to.
+    Parameters
+    ----------
+    fs : list of polys in QQ[x_1,..., x_n]
+        Concave polynomials defining the convex body.
+    def_value : QQ > 0
+        The deformation value.
+    proj_var : in fs[0].parent().gens()
+        Variable onto which Cdef shall be projected next.
+    var_value_pairs : dict of (x_i : val_x_i) pairs.
+        The QQ values of the x_i to which the fs should be restricted.
+    prec : int
+        Number of binary digits of precision.
+    debug_level : int, optional
+        Amount of intermediate results to be printed.
 
-    Output
+    Returns
     -------
         An interval representing the [min, max] value of proj_var on the deformed intersection.
     
@@ -406,14 +406,24 @@ def get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy=None, de
     """ Computes the Picard Fuchs operator for 
     Vol(proj_var) = Vol( p^{-1}(proj_var) \cap {fs \geq 0 forall s} \cap slice(var_value_pairs)).
 
-    Input
-    ------
-    fs              : Polynomials defining semi-alg set (by fs >= 0)
-    def_value    : Value in QQ, by which to smooth prod(fs).
-    var_value_pairs : defining slice to restrict to.
+    Parameters
+    ----------
+    fs : list of polys in QQ[x_1,..., x_n]
+        Concave polynomials defining the convex body.
+    def_value : QQ > 0
+        The deformation value.
+    var_value_pairs : dict of (x_i : val_x_i) pairs.
+        The QQ values of the x_i to which the fs should be restricted.
+    proj_var : in QQ[x_1,..., x_n]
+        Variable that shall be projected onto next, i.e. which will not be used
+        to construct the integrand.
+    strategy : dict, optional
+        A dictionary providing strategies, such as order of projections.
+    debug_level : int, optional
+        Amount of intermediate results to be printed.
 
-    Output
-    ------
+    Returns
+    -------
     P : Picard Fuchs operator, in WeylAlgebra D_{proj_var}
 
     TODO
@@ -430,21 +440,38 @@ def get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy=None, de
 
     # To be precise, below we simply construct some subset of the integration ideal, 
     # but it suffices to be non-empty.
-    allowed_pole = A.denominator().change_ring(QQ)
-    intIdeal = creative_telescoping(annA, proj_var, allowed_pole=allowed_pole, debug_level=debug_level)
+    intIdeal = creative_telescoping(annA, proj_var, debug_level=debug_level)
 
     return intIdeal.gens()[0]
 
 def annihilator_deformed_intersection(fs, def_value, var_value_pairs, proj_var, debug_level=0):
-    """ Returns an annihilating d-finite ideal in the rational Weyl algebra 
-        for the rational integrand 
-        
-        d_i(F) * x_i / F 
-        where x_i not = proj_var
-        and 
-        F(x,t) = prod(fs) - t
+    """ Returns an annihilating d-finite ideal for the rational integrand.
 
-        after evaluating at t=def_value and var_value_pairs.
+    The rational integrand is under standard considerations given by
+    A = diff(F, x_i) * x_i / F      where x_i not = proj_var
+    and  
+    F = prod(fs) - def_value        after restricting to var_value_pairs.
+    
+    Normally, the integrand is constructed with construct_integrand().
+
+    Parameters
+    ----------
+    fs : list of polys in QQ[x_1,..., x_n]
+        Concave polynomials defining the convex body.
+    def_value : QQ > 0
+        The deformation value.
+    var_value_pairs : dict of (x_i : val_x_i) pairs.
+        The QQ values of the x_i to which the fs should be restricted.
+    proj_var : in QQ[x_1,..., x_n]
+        Variable that shall be projected onto next, i.e. which will not be used
+        to construct the integrand.
+    debug_level : int, optional
+        Amount of intermediate results to be printed.
+            
+    Returns
+    -------
+    ideal
+        A d-finite ideal in the rational Weyl algebra annihilating A.
     """
 
     A = construct_integrand(fs, def_value, var_value_pairs, proj_var, debug_level=debug_level)
@@ -456,14 +483,27 @@ def annihilator_deformed_intersection(fs, def_value, var_value_pairs, proj_var, 
     return annA
 
 def construct_integrand(fs, def_value, var_value_pairs, proj_var, prim_var_name=None, debug_level=0):
-    """ By standard considerations, see for example our paper, the function 
+    """ Returns the rational function for which Vol(Cdef cap proj_var) is a period.
+    
+    By standard considerations, see for example our paper, the function 
     vol(proj_var) can be expressed as period of a rational function A. 
-    We construct this function rational function here, considering  closely the order of indeterminate variables
-    and the proj var.
+    We construct this function rational function here, considering 
+    closely the order of indeterminate variables and the proj var.
 
-    Input
-    ------
-    See get_picard_fuchs()
+    Parameters
+    ----------
+    fs : list of polys in QQ[x_1,..., x_n]
+            Concave polynomials defining the convex body.
+    def_value : QQ > 0
+        The deformation value.
+    var_value_pairs : dict of (x_i : val_x_i) pairs.
+        The QQ values of the x_i to which the fs should be restricted.
+    proj_var : in fs[0].parent().gens()
+        Variable onto which Cdef shall be projected next.
+    prim_var_name : str, optional
+        Can specify a variable w.r.t. which the rational function is constructed.
+    debug_level : int, optional
+        Amount of intermediate results to be printed.
 
     Output
     -----
@@ -479,9 +519,9 @@ def construct_integrand(fs, def_value, var_value_pairs, proj_var, prim_var_name=
     fdef_ZZ = fdef.numerator().change_ring(ZZ)
     proj_var_ZZ = fdef_ZZ.parent()(proj_var)
 
-    prim_var = [var for var in fdef_ZZ.parent().gens() if not var == proj_var_ZZ][0] # TODO: Here taking the first, should make this more strategic here.
-    
-    # TODO: Test this before committing.
+    # TODO: Here taking the first, should make this more strategic here.
+    prim_var = [var for var in fdef_ZZ.parent().gens() if not var == proj_var_ZZ][0] 
+
     if prim_var_name != None:
         prim_var = fdef_ZZ.parent()(prim_var_name)
 
@@ -493,20 +533,30 @@ def construct_integrand(fs, def_value, var_value_pairs, proj_var, prim_var_name=
 
 
 def get_picard_fuchs_t(fs, strategy=None, debug_level=0):
-    """ Computes the Picard Fuchs operator for 
+    """ Computes the Picard Fuchs operator for Vol(Ct).
+
+    The functions in t>0 
     Vol(t) = Vol( prod(fs) - t >= 0) \cap {fs \geq 0 forall s} 
+    is a period of a rational function and so there exists 
+    a PF operator that annihilates. 
 
-    Input
-    ------
-    fs              : Polynomials defining semi-alg set (by fs >= 0)
+    Parameters
+    ----------
+    fs : list in QQ[x_1,..., x_n]
+        List of concave polynomials defining semi algebraic set C.
+    strategy : dict, optional
+        [TODO] Not yet implemented
+    debug_level : int, optional
+            Amount of intermediate results to be printed.
+    
+    Returns
+    -------
+    UnivariateDifferentialOperatorOverUnivariateRing
+        The PF operator annihilating Vol(t).
 
-    Output
-    ------
-    P : Picard Fuchs operator, in WeylAlgebra D_{t}
-
-    TODO
+    TODOs
     -----
-    Make the procedure by which to compute the intersection ideal more informed.
+    - [TODO] Make the procedure by which to compute the intersection ideal more informed.
     """
 
     def_var_name = "t"
@@ -520,19 +570,33 @@ def get_picard_fuchs_t(fs, strategy=None, debug_level=0):
 
     # To be precise, below we simply construct some subset of the integration ideal, 
     # but it suffices to be non-empty.
-    allowed_pole = At.denominator().change_ring(QQ)
-    intIdeal_t = creative_telescoping(annAt, At.parent().ring()(def_var_name), allowed_pole=allowed_pole, debug_level=debug_level)
+    intIdeal_t = creative_telescoping(annAt, At.parent().ring()(def_var_name), debug_level=debug_level)
 
     return intIdeal_t.gens()[0]
 
 
 def construct_integrand_t(fs, def_var_name, strategy=None, prim_var_name=None):
-    """ See construct_integrand(). Constructs the picard fuchs operator for the deformed slice
-    vol(t) = vol({prod(fs)-t >= 0} \cap {fs >= 0})
+    """Returns the rational function At for which Vol(Ct) is a period.
+    
+    By standard considerations, see for example our paper, the function
+        vol(t) = vol({prod(fs)-t >= 0} \cap {fs >= 0}) 
+    can be expressed as period of a rational function At.
 
-    Input
+
+    Parameters
+    ----------
+    fs : list of polys in QQ[x_1,..., x_n]
+        Concave polynomials defining the convex body.
+    def_var_name : str
+        Variable name of the deformation parameters, e.g. "t".
+    strategy : dict, optional
+        [TODO] Not implemented here.
+    prim_var_name : str, optional
+        Can specify a variable w.r.t. which the rational function is constructed.
+
+    Output
     -----
-        See get_picard_fuchs_t()
+    At : Element of a FractionField.
     """
 
     ft = tools.deformed_product(fs, def_var_name)
@@ -552,7 +616,6 @@ def construct_integrand_t(fs, def_var_name, strategy=None, prim_var_name=None):
         prim_var = ft_flattened_ZZ.parent()(prim_var_name)
 
 
-
     sgn = (-1)**0 # TODO: Should depend on the choice of prim_var, to account for ordering. (Or maybe it doesn't matter? Either does annihilate it.)
 
     At = sgn * diff(ft_flattened_ZZ, prim_var) * prim_var / ft_flattened_ZZ # Automatically constructs the fraction field.
@@ -566,21 +629,32 @@ def rational_weyl_algebra(polyRing):
 
     return OreAlgebra(fracField, *[("D" + str(var), {}, {var : polyRing(1)}) for var in polyRing.gens()])
 
-def creative_telescoping(I, proj_var, allowed_pole=None, strategy=None, debug_level=0):
-    """ For an ideal in the rational Weyl algebra W, it carries out creative telescoping
-    sequentially to eliminate all but proj_var.
+def creative_telescoping(I, proj_var, strategy=None, debug_level=0):
+    """ Integrates out all but the variable proj_var from the R or D ideal I.
 
     The result is an ideal contained in:     (I + dx_1 * D + ...+ dx_n *D) \cap D_x0
     (In this example we assume x0 to be the proj_var)
 
+    Parameters
+    ----------
+    I : ideal of RationalWeylAlgebra
+        Ideal in Weyl algebra over field of rational functions.
+    proj_var : in I.parent().base_ring().gens()
+        The variable that should remains after creative telescoping.
+    strategy : dict, optional
+        [TODO] Not implemented yet.
+    debug_level : int, optional
+            Amount of intermediate results to be printed.
+    
     Output
     ------
-    ct_ : Returns a list of of univariate differential operators of length 1 (!).
+    ideal
+        Returns a list of of univariate differential operators of length 1 (!).
 
-    TODO
-    ------
-    - Should extend this, so that at least temporarily we store / output for debuginfo the certificates, too.
-    - Should include some basic strategy.
+    TODOs
+    -----
+    - [TODO] Should extend this, so that at least temporarily we store / output for debuginfo the certificates, too.
+    - [TODO] Should include some basic strategy.
     """
 
     if debug_level > 0:
@@ -590,7 +664,7 @@ def creative_telescoping(I, proj_var, allowed_pole=None, strategy=None, debug_le
     ct_system = list(I.gens())
 
     if debug_level > 2:
-        print("\nThe ideal is generated by: {}".format(list(I.gens())))
+        print("\n[CT] The ideal is generated by: {}".format(list(I.gens())))
 
     for Dvar in [Dvar for Dvar in W.gens() if not Dvar == W("D"+str(proj_var))]:
         ct_ideal = ct_system[0].parent().ideal(ct_system)
@@ -598,35 +672,13 @@ def creative_telescoping(I, proj_var, allowed_pole=None, strategy=None, debug_le
         if debug_level > 0:
             print("\n[CT] Integrating out the variable {}".format(str(Dvar)))
 
-        # ct_system, certificates = ct_ideal.ct(Dvar, certificates=True)
         ct_system = ct_ideal.ct(Dvar, certificates=False)
-
-        # Verify that the certificates only contain allowed poles. 
-        # Factor first and then check for the factors.
-        # TODO: This can likely be done better. (i.e. check)
-
-        # if allowed_pole!= None:
-        #     for cert in certificates:
-        #         cert_denom = (W.base_ring()(cert)).denominator()
-        #         cert_denom = cert_denom.change_ring(QQ)
-
-        #         if cert_denom in QQ: # Skip if its a constant
-        #             continue
-
-        #         # This has to be looked into again.
-        #         if not (cert_denom.radical() % allowed_pole.radical() == 0 and allowed_pole.radical() % cert_denom.radical() == 0):
-        #             raise CertificateError("[CT] The certificate contains a pole that is not appearing in fdef:\ncert_denom.radical().factor() = {}\nallowed_poly.radical().factor() = {}".format(list(cert_denom.radical().factor()), list(allowed_pole.radical().factor())))
-                        
-        # if debug_level > 2:
-        #     print("\n[CT] The resulting system: {}".format(ct_system))
-        #     print("\n[CT] The corresponding certificates: {}".format(certificates))
-
 
     return ct_system[0].parent().ideal(ct_system)
 
+
 def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_singular_points=[], debug_level=0):
-    """ Given a linear differential operator in 1 variable, i.e. an ODE, solve it given the provided initial conditions
-    and output the value of the solution at the requested point.
+    """ Solves a linear univariate differential operator with specified initial and evaluation conditions.
 
     The initial conditions specify the coefficients to the local series solutions, given the exponents of the starting monomials.
     In our case, since our solutions are bounded in the specified range, there will be no log part in the starting monomials.
@@ -642,30 +694,33 @@ def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_si
         - The initial conditions all are taken at smooth points, smaller than the first branch-value of the projection onto t. 
         - The corresponding starting monomials will always be (t-t_0)^0 = 1.
 
-
-    Input
-    ------
-    P : Element of Weyl algebra over polynomial or rational function ring in 1 variable.
-    initial_conditions : { x_val_1:{"exponent":expon, "coef":coef }, x_val_2:...}
-    evaluation_condition : Dictionary containing evaluation point and the exponent 
-                            of the starting monomial, whose coef shall be read of, e.g. {"pt":0, "exponent":0}
+    Parameters
+    ----------
+    P : UnivariateDifferentialOperatorOverUnivariateRing
+        PF operator to be solved.
+    initial_conditions : dict
+        E.g. { x_val_1:{"exponent":expon, "coef":coef }, x_val_2:...}
+    evaluation_condition : dict
+        Dictionary containing evaluation point and the exponent of the 
+        starting monomial, whose coef shall be read of, e.g. {"pt":0, "exponent":0}
+    prec : int
+        Number of binary digits of precision.
+    apparent_singular_points : list, optional
+        List of points through which analytic continuation from the initial points 
+        to the evaluation pt should always go through (i.e. they are only apparent
+        singular points of P)
+    debug_level : int, optional
+            Amount of intermediate results to be printed.
+           
+    Returns
+    -------
+    sage.rings.complex_arb.ComplexBall
+        The solution of P according to initial_conditions and eval_conditions up to precision 2^{-prec}.
 
     Example
     -------
     initial_condition = {1/10:{"exponent":1, "coef":3.12223532...}, }
-
-    Caveat
-    ------
-    - [TODO] Since we really depend on the order of the initial conditions to be always the same, we should store them as a list.
-    - [TODO] Consider the singular points of the differential operator.
-    - This is still buggy in general.
-    - [TODO] Need proof that this will work in our considered scenarios.
-    - [TODO] Need to check that the initial conditions are good (and can do this before evaluating I think! So we don't waste the computations of the slice volumes.)
-
-
-    - [TODO] Assure that the accuracy is in the correct ball precision. (Rather than providing a float as accuracy).
-            --> Or all together change the accuracy! (e.g. to be input rather as decimal digits. e.g. as 1e-100)
-
+    evaluation_condition = {"pt":0, "exponent":0}
     """
 
     if debug_level > 0:
@@ -721,48 +776,64 @@ def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_si
     return eval_point_coefs[P.local_basis_monomials(eval_point).index((t-eval_point)**evaluation_condition["exponent"])]
 
 def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=None, debug_level=0):
-    """ Computes the smooth volume of the deformed intersection of lp balls. 
+    """ Computes the volume of the smooth deformations of semi-algebraic convex bodies.
 
-    Input
-    -----
-    fs : list of multivariate polynomials over QQ
-    def_value : non-negative element in QQ
-    var_value_pairs : Dictionary with  variable:value   key-value-pairs, where value is in QQ.
+    Assumes that convex body is given as
+        C = {x in RR^n | f(x) > 0 for all f in fs}
+    where 
+        f is concave, for all f in fs.
 
-    Output
-    ------
-    The volume of the deformation of the intersection of all {f>=0 | f in fs}
-    to prod(fs)-def_value. In both case only the points in the slice specified by var_value_pairs are considered.
+    The deformation then is
+        Cdef =  C \cap {x \in RR^n | prod(fs) - def_value > 0}
 
-    The output is an element of a complex ball field!
+    The var_value_pairs, additionally restrict this to
+        { x_i = val | (x_i, val) in var_value_pairs}
+    
+    Parameters
+    ----------
+    fs : list of polys in QQ[x_1,..., x_n]
+        Concave polynomials defining the convex body.
+    def_value : QQ > 0
+        The deformation value.
+    var_value_pairs : dict of (x_i : val_x_i) pairs.
+        The QQ values of the x_i to which the fs should be restricted.
+    prec : int
+        Number of binary digits of precision.
+    strategy : dict, optional
+        A dictionary providing strategies, such as order of projections.
+    debug_level : int, optional
+        Amount of intermediate results to be printed.
+            
+    Returns
+    -------
+    sage.rings.complex_arb.ComplexBall
+        The volume of the deformed convex body Cdef with precision 2^{-prec}.
 
     Caveat
     ------
-    The output will be a number in the complex ball field with prec many bits of precision.
+    It is assumed that the convex body C, respectively the slice defined by 
+    var_value_paris is full-dimensional.
 
-
-
-    [TODO] Add tests to test-suite.
-    [TODO] Add assertions.
-    [TODO] Implement good initial conditions.
-    [TODO] Check if branch_points computation also works to t=0 case (so that don't need separate case.)
-
-    [TODO] Make the choice of a projection variable strategic.
-
+    Concavity is NOT explicitly checked for.
+    
+    TODOs
+    ------
+    [TODO] Check that the initial points are actually good before evaluating (or add option to do so.)
     [TODO] Assert that there is actually only a unique root in the singular locus corresponding to either numerical branch_point.
-
+    [TODO] Parallelize computation of slices.
     """
-    # The evaluated polynomial (for reference)
+
+    # The evaluated polynomial
     evaluated_poly = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [def_value]), var_value_pairs)
     if debug_level > 0:
-        print("Deformation value t: {}".format(def_value))
-        print("Slice taken at: {}".format(var_value_pairs))
-        print("Restricted deformed product: {}".format(evaluated_poly))
+        print("[Vol1] Deformation value t: {}".format(def_value))
+        print("[Vol1] Slice taken at: {}".format(var_value_pairs))
+        print("[Vol1] Restricted deformed product: {}".format(evaluated_poly))
 
     # Early exit if already univariate, then return 1-dim volume.
     if len(evaluated_poly.parent().gens()) == 1:
         if debug_level > 0:
-            print("The restricted polynomial is univariate, hence going into the 1-dim-volume routine.")
+            print("[Vol1] The restricted polynomial is univariate, hence going into the 1-dim-volume routine.")
         return get_1_dim_volume(fs, var_value_pairs, def_value, prec)
 
     # Fix a projection variable (here just the first undetermined variable): 
@@ -773,7 +844,7 @@ def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=No
         proj_var = strategy["proj_var"](fs, def_value, var_value_pairs)
 
     if debug_level > 0:
-        print("proj_var: {}".format(proj_var))
+        print("[Vol1] proj_var: {}".format(proj_var))
 
     # Get the Picard-Fuchs operator and define the operator to be solved.
     P = get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy, debug_level=debug_level)
@@ -783,18 +854,18 @@ def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=No
     singular_locus = lead_coef.roots(AA, multiplicities=False) 
 
     if debug_level > 0:
-        print("\nOrder Pdx:", Pdx.order())
-        print("Leading coef:", Pdx.leading_coefficient())
-        print("Singular locus:", singular_locus)
+        print("\n[Vol1] Order Pdx:", Pdx.order())
+        print("[Vol1] Leading coef:", Pdx.leading_coefficient())
+        print("[Vol1] Singular locus:", singular_locus)
         if debug_level > 2:
-            print("Pdx = ", Pdx, "\n")
+            print("[Vol1] Pdx = ", Pdx, "\n")
 
     # Determine the branch points and corresponding critical values bounding the deformed set.
     
     # Numerical critical values:
     relevant_crit_val = [pt[proj_var] for pt in project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec)]
     if debug_level > 0:
-        print("Relevant crit vals:", relevant_crit_val)
+        print("[Vol1] Relevant CritVals:", relevant_crit_val)
 
     if len(relevant_crit_val) != 2:
         raise ValueError("Computation returned too many (#={}) critical values: {}".format(len(relevant_crit_val), relevant_crit_val))
@@ -802,43 +873,40 @@ def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=No
     min_crit_val = min(relevant_crit_val)
     max_crit_val = max(relevant_crit_val)
 
-    if debug_level > 0:
-        print("Relevant critical val: ".format(relevant_crit_val))
-
     # Set the interval in which we want to sample points, identify our branch points among
     # TODO: Make sure that this uniquely identifies points of the singular locus.
     xmin = singular_locus[np.argmin([np.abs(root - min_crit_val) for root in singular_locus])]
     xmax = singular_locus[np.argmin([np.abs(root - max_crit_val) for root in singular_locus])]
     
     if debug_level > 0:
-        print("Identified the relevant critical values in the singular locus as: \nxmin = {}\nxmax = {}".format(xmin, xmax))
+        print("[Vol1] Identified the relevant critical values in the singular locus as: \nxmin = {}\nxmax = {}".format(xmin, xmax))
 
     # apparent singularities (that are not singularities of our solution:)
     xapparent = sorted([xi for xi in singular_locus if not xi in [xmin, xmax] and (xmin < xi) and (xi < xmax)])
 
     if debug_level > 0:
-        print("Apparent singular points in the interval: ", xapparent)
+        print("[Vol1] Apparent singular points in the interval: ", xapparent)
 
     # Determine points for initial data, such that transition matrix becomes invertible.
     CBF = ComplexBallField(prec)
     lower_bound = CBF(xmin).real()
     upper_bound = CBF(min(xapparent)).real() if len(xapparent) > 0 else CBF(xmax).real()
-    initial_points = get_good_initial_points(P, lower_bound, upper_bound, debug_level=debug_level)
+    initial_points = get_good_initial_points(P, lower_bound, upper_bound, prec, debug_level=debug_level)
     
     if debug_level > 0:
-        print("sampled initial points:", initial_points)
+        print("[Vol1] Sampled initial points:", initial_points)
 
     # Determine initial conditions (TODO: in parallel)
     #{"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
     initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":volume1(fs, def_value, var_value_pairs=var_value_pairs | {proj_var:proj_var_val}, prec=prec, strategy=strategy, debug_level=debug_level)} for proj_var_val in initial_points}
     
     if debug_level > 0:
-        print("Initial conditions", initial_conditions)
+        print("[Vol1] Initial conditions", initial_conditions)
 
     evaluation_condition = {"pt":xmax, "exponent":0}
 
     if debug_level > 0:
-        print("Eval condition: ", evaluation_condition)
+        print("[Vol1] Eval condition: ", evaluation_condition)
 
     # Solve the initial value problem
     volume = solve_diff_op(Pdx, initial_conditions, evaluation_condition, prec, xapparent, debug_level=debug_level)
@@ -846,53 +914,72 @@ def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=No
     # Return the volume
     return volume
 
-def get_good_initial_points(P, x0, x1, debug_level=0):
-    """ Provides n rational points strictly between x0 and x1, 
-    where n is the order of the ordinary differential operator to be solved.
 
-    Input
-    -----
-    [TODO]
+def get_good_initial_points(P, x0, x1, prec, debug_level=0):
+    """ Provides order(P) many rational points strictly between x0 and x1.
 
-    Output
+    Whether the conditions are good is checked up to prec. (i.e. bad if 0 \in CBF(determinant))
+
+    Parameters
+    ----------
+    P : UnivariateDifferentialOperatorOverUnivariateRing
+        PF for which good initial points shall be found.
+    x0 : RealBall or int or QQ
+    x1 : RealBall or int or QQ
+    prec : int
+            Number of binary digits of precision.
+    debug_level : int, optional
+        Amount of intermediate results to be printed.
+    
+    Returns
+    ----------
+    list of QQ
+        List of good initial points for P.
+
+    TODOs
     ------
-    [TODO]
-
-    Remark
-    ------
-    [TODO] Actually provide the invertibility check of the initial points.
+    [TODO] Actually provide the invertibility check of the initial points.  Perturb if needed.
     """
+    
     n = P.order()
     q = sample_n_rational_points(x0,x1,n, debug_level=debug_level)
 
     # TODO: Actually check invertibility of the linear system.
-    # Rmk: Note that with probability 1, the system is invertible. Ideally this check while solving the differential operator
-    #   and then raising an error.
+    # and then slightly perturb the points if not invertible.
 
     return q
 
-
 def sample_n_rational_points(x0,x1,n, base=10, debug_level=0):
     """ Linearly samples n rational points strictly between x0 and x1.
-    Determines q_start and delta, accordingly, so that
 
-    qk = qstart + k*delta (for k = 0,..., n-1)
-
+    Determines q_start and delta, accordingly, so that 
+        qk = qstart + k*delta (for k = 0,..., n-1)
     yields n rational points between x0 and x1.
 
-    In case x0 and x1 are given as algebraic numbers, it first truncates the imaginary pary.
+    Parameters
+    ----------
+    x0 : RealBall or int or QQ
+    x1 : RealBall or int or QQ
+    n : int
+        Number of points to be sampled between x0 and x1.
+    base : int, optional
+        Base in which the logarithm is computed.
+    debug_level : int, optional
+        Amount of intermediate results to be printed.
+    
+    Returns
+    -------
+    list of QQ
+        List of n rational points strictly between x0 and x1.
 
-    Determines a suitable interval in base 10.
-
-    Remark
-    ------
-    [TODO] - Print delta on demand. 
-    [TODO] - Which log function is this? Is it accurate?
+    TODOs
+    -----
+    [TODO] Make sure log and floor always work as expected.
     """
 
     if debug_level > 0:
-        print("Sampling n = {} many points between x0 = {} and x1 = {}.".format(n, x0, x1))
-        print("Chosen base = {}.".format(base))
+        print("[SamplePoints] Sampling n = {} many points between x0 = {} and x1 = {}.".format(n, x0, x1))
+        print("[SamplePoints] Chosen base = {}.".format(base))
 
     xmax = max(x0,x1)
     xmin = min(x0,x1)
@@ -901,7 +988,6 @@ def sample_n_rational_points(x0,x1,n, base=10, debug_level=0):
     N = np.floor(log(xmax-xmin)/log(base))
 
     # Choose qstart in 2*10^(N-1) neigborhood of xmin.
-    # Use QQ, to avoid floats!
     qstart = QQ((np.floor(xmin / power(QQ(10), N-1)) + 2) * power(QQ(10), N-1))
 
     # Generate the samples linearly
@@ -912,8 +998,11 @@ def sample_n_rational_points(x0,x1,n, base=10, debug_level=0):
     delta = QQ(10**(N-1) / (n-1))
     q = [qstart + k*delta for k in range(0,n)]
 
-    return q
+    if debug_level > 1:
+        print("[SamplePoints] qstart = {}".format(qstart))
+        print("[SamplePoints] delta = {}".format(delta))
 
+    return q
 
 def volume2(fs, prec, strategy=None, debug_level=0):
     """ Computes the volume of semi-algebraic convex bodies.
@@ -925,12 +1014,14 @@ def volume2(fs, prec, strategy=None, debug_level=0):
     
     Parameters
     ----------
-        fs : list of polys in QQ[x_1,..., x_n]
-            Concave polynomials defining the convex body.
-        prec : int
-            Number of binary digits of precision.
-        debug_level : int, optional
-            Amount of intermediate results to be printed.
+    fs : list of polys in QQ[x_1,..., x_n]
+        Concave polynomials defining the convex body.
+    prec : int
+        Number of binary digits of precision.
+    strategy : dict, optional
+        A dictionary providing strategies, such as order of projections.
+    debug_level : int, optional
+        Amount of intermediate results to be printed.
             
     Returns
     -------
@@ -980,7 +1071,7 @@ def volume2(fs, prec, strategy=None, debug_level=0):
     smallest_positive_singular_point = sorted(singular_locus)[index_zero + 1] if index_zero + 1 < len(singular_locus) else QQ(1/10)
 
     CBF = ComplexBallField(prec)
-    initial_points = get_good_initial_points(Pt, 0, CBF(smallest_positive_singular_point).real())
+    initial_points = get_good_initial_points(Pt, 0, CBF(smallest_positive_singular_point).real(), prec)
 
     if debug_level > 0:
         print("[Vol2] Initial points for Pt: {}".format(initial_points))
