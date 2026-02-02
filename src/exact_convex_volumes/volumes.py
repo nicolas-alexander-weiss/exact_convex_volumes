@@ -1,5 +1,3 @@
-# sys.path.insert(0, '/Users/lakshmiramesh/Desktop/ore_algebra/src')
-
 # Helper Modules
 
 from . import tools
@@ -40,85 +38,7 @@ class CertificateError(Exception):
 
 NUM_BITS_PRECISION = 200 # i.e. Precision of 1 / 2^NUM_BITS_PRECISION.
 
-# Picard-Fuchs-Operator-Caching
-class PicardFuchsCache:
-    """Cache object to store computed Picard-Fuchs-Operators.
-
-    Note that this only builds a string representation, so this is sensitive to any kind of reordering or renaming of inputs.
-    
-    This way, computations can be re-run to increase precision.
-    """
-
-    def __init__(self):
-        self.cache = {}     # for the picard-fuchs operators of the deformed slices
-        self.cache_t = {}   # for the picard-fuchs operator of the deformation family
-    
-    ### PF versions (after deformation)
-
-    def PF_input_repr(fs, def_value, var_value_pairs, proj_var):
-        """ Flattens the inputs together as a tuple pairs denoting the input. 
-        Dicts will be flattened to a tuple of key value pairs.      
-        """
-        input_params = (("fs",tuple(fs)), ("def_value", def_value), ("var_value_pairs", tuple(var_value_pairs.items())), ("proj_var",proj_var))
-
-        return input_params
-
-    def contains_PF(self, fs, def_value, var_value_pairs, proj_var):
-        """ A computed Picard-Fuchs operator should be characterized by the cohomology class that it integrates.
-        In our case, since the Picard-Fuchs operator will be returned from the from the "get_picard_fuchs()" and
-        "get_picard_fuchs_t()" function, the input will be either the fs, or additionally the deformation and slice
-        slice parameters (var_value_pairs).
-
-        [TODO] Extend this doc string.
-
-        Input
-        ------
-            fs : Polynomials over QQ of the same polynomial ring, common positivity locus defining the region of interest.
-            proj_var : The axis onto which the region will be projected. The variable in which the PF operator is defined.
-            def_value : prod(fs) - def_value will define the deformed slices.
-            var_value_pairs : At which the above expression will be evaluated.
-        """
-        return PicardFuchsCache.PF_input_repr(fs, def_value, var_value_pairs, proj_var) in self.cache.keys()
-
-    def add_PF(self, P, fs, def_value, var_value_pairs, proj_var):
-        """ Builds a representation and then stores the operator P in the dictionary.
-        """
-        representation = PicardFuchsCache.PF_input_repr(fs, def_value, var_value_pairs, proj_var)
-        self.cache[representation] = P
-
-
-    def retrieve_PF(self, fs, def_value, var_value_pairs, proj_var):
-        """ Builds a representation and retrieves the PF operator from the cache (dictionary).
-        """
-        representation = PicardFuchsCache.PF_input_repr(fs, def_value, var_value_pairs, proj_var)
-        return self.cache[representation]
-
-    ### PF_t versions:
-
-    def PF_t_input_repr(fs, def_var_name):
-        """
-        [TODO] In principal should also have a way to go backwards.
-        """
-        input_params = (("fs", tuple(fs)), ("def_var_name",def_var_name))
-        return input_params
-
-    def contains_PF_t(self, fs, def_var_name):
-        """
-        See doc string of contains_PF.
-        """
-        return PicardFuchsCache.PF_t_input_repr(fs, def_var_name) in self.cache_t.keys()
-
-    def add_PF_t(self, P, fs, def_var_name):
-        """ Builds a representation and then stores the operator P in the dictionary.
-        """
-        representation = PicardFuchsCache.PF_t_input_repr(fs, def_var_name)
-        self.cache_t[representation] = P
-
-    def retrieve_PF_t(self, fs, def_var_name):
-        """ Builds a representation and retrieves the PF operator from the cache (dictionary).
-        """
-        representation = PicardFuchsCache.PF_t_input_repr(fs, def_var_name)
-        return self.cache_t[representation]
+# Methods
 
 def get_inside_points(fs, var_value_pairs, points):
     """ Returns all points that satisfy f(var_value_pairs | point) > 0 for all f in fs.
