@@ -1,0 +1,8 @@
+# 2026-02-01
+
+# When executing the volume computation with debug_level=0, e.g. in the long test cases
+# one often sees: 
+#   
+#   "Restarting with a non-random linear form" being printed.
+#
+# Q: Where is this coming from?

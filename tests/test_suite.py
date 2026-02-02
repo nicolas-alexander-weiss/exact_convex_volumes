@@ -1,13 +1,14 @@
 # Run with
 #           sage --python test_suite.py
 #
-# from the repository root directory
 
-#
-# Add path to the package.
-import sys
-sys.path.append("src/volumes")
+# Load the package from context if not globally installed
+from context import exact_convex_volumes
 
+# Load the sub-modules of the volumes package
+from exact_convex_volumes import volumes, tools
+from exact_convex_volumes import m2_interface as m2
+from exact_convex_volumes import msolve_interface as msolve
 
 # Sage imports
 from sage.all import (
@@ -26,8 +27,6 @@ import numpy as np
 # msolve interface tests:
 #
 
-import msolve_interface as msolve
-
 def msolve_test1():
     """ Compute the intersection of the unit ball and the x-axis.
     """
@@ -39,8 +38,6 @@ msolve_interface_tests = [msolve_test1]
 #
 # m2_interface tests:
 #
-
-import m2_interface as m2
 
 def m2_test_1():
     """ Test elimination function. Check that the projection of x^2 = y to the x axis gives everything.
@@ -55,8 +52,6 @@ m2_interface_tests = [m2_test_1]
 #
 # Tools tests:
 #
-
-import tools
 
 def tools_test_1():
     """ Build the lp poly centered at zero and test that the unit vectors are contained
@@ -135,12 +130,11 @@ tools_tests = [tools_test_1, tools_test_2, tools_test_3, tools_test_4, tools_tes
 # Volume tests:
 #
 
-import volumes
-
 def volume_test_1():
     """ Test the 1 dimensional volume. 
     [TODO: Add more precise value comparison.]
     """
+
     n = 2
     p = 2
     mus = [[0,0],[1,0], [0,1]]
@@ -373,9 +367,9 @@ def long_test_1():
         fs = [tools.shifted_lp_poly(S, p, np.zeros((n,), int))]
         vol_p_n = volumes.volume1(fs, 0, {}, prec_bits)
 
-        print(f"Computed volume: {vol_p_n}")
-        print(f"Closed form volume: {vol_p_n_r_closed}")
-        print(f"Difference: {vol_p_n - vol_p_n_r_closed}")
+        # print(f"Computed volume: {vol_p_n}")
+        # print(f"Closed form volume: {vol_p_n_r_closed}")
+        # print(f"Difference: {vol_p_n - vol_p_n_r_closed}")
 
         # Both outputs will be in the complex ball field of the same precision. 
         # So we can compare if the mid point of the closed formula output lives in the output
@@ -384,7 +378,48 @@ def long_test_1():
         assert(vol_p_n_r_closed.mid() in vol_p_n)
 
 
-long_tests = [long_test_1]
+def long_test_2():
+    """ Computes the volume of a tetrahedron in 3d.
+    Recall it's formula is given by:
+
+        Vol(C) = base_area * height / 3
+    """
+
+    print("[Long test 2] Test against closed form for vol of tetrahedron.")
+
+    S = PolynomialRing(QQ, "x", 3)
+    x = S.gens()
+    fs = [x[0], x[1], x[2], QQ("1/3") - x[0] - x[1] - x[2]]
+    
+    vol = volumes.volume2(fs, prec=200)
+
+    base_area = QQ("1/3") * QQ("1/3") / 2
+    height = QQ("1/3")
+
+    vol_exact = base_area * height / 3
+
+    # print(f"vol {vol}")
+    # print(f"vol {vol_exact}")
+
+    assert(vol_exact in vol)
+
+
+def long_test_3():
+    """A cube in 3d"""
+
+    print("[Long test 3] Test against closed form for vol of cube.")
+    S = PolynomialRing(QQ, "x", 3)
+    x = S.gens()
+    fs = [x[0], x[1], x[2], 1 - x[0], 1 - x[1], 1 - x[2]]
+    vol = volumes.volume2(fs, prec=200)
+
+    assert(1 in vol)
+
+    
+
+
+
+long_tests = [long_test_1, long_test_2, long_test_3]
 
 
     
