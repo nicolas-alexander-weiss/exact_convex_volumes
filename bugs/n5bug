@@ -1,0 +1,50 @@
+L = []
+for p in range(1,2):
+    S = PolynomialRing(QQ, "x", 5)
+    x = S.gens()
+    fs = [1 - x[0]^(2*p) - x[1]^(2*p) - x[2]^(2*p) - x[3]^(2*p) - x[4]^(2*p)]
+    strategy={"proj_var":last_variable_proj_var_strategy}
+    L.append(get_picard_fuchs(fs, 0, {}, strategy=strategy, proj_var=x[1],debug_level=0))
+print(L)
+
+
+# IndexError                                Traceback (most recent call last)
+# Cell In[25], line 7
+#       5     fs = [Integer(1) - x[Integer(0)]**(Integer(2)*p) - x[Integer(1)]**(Integer(2)*p) - x[Integer(2)]**(Integer(2)*p) - x[Integer(3)]**(Integer(2)*p) - x[Integer(4)]**(Integer(2)*p)]
+#       6     strategy={"proj_var":last_variable_proj_var_strategy}
+# ----> 7     L.append(get_picard_fuchs(fs, Integer(0), {}, strategy=strategy, proj_var=x[Integer(1)],debug_level=Integer(0)))
+#       8 print(L)
+
+# File ~/Projects/volumes_of_P_balls/volumes_of_p_balls/src/exact_convex_volumes/volumes.py:434, in get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy, debug_level)
+#     431 # To be precise, below we simply construct some subset of the integration ideal, 
+#     432 # but it suffices to be non-empty.
+#     433 allowed_pole = A.denominator().change_ring(QQ)
+# --> 434 intIdeal = creative_telescoping(annA, proj_var, allowed_pole=allowed_pole, debug_level=debug_level)
+#     436 return intIdeal.gens()[0]
+
+# File ~/Projects/volumes_of_P_balls/volumes_of_p_balls/src/exact_convex_volumes/volumes.py:602, in creative_telescoping(I, proj_var, allowed_pole, strategy, debug_level)
+#     599         print("\n[CT] Integrating out the variable {}".format(str(Dvar)))
+#     601     # ct_system, certificates = ct_ideal.ct(Dvar, certificates=True)
+# --> 602     ct_system = ct_ideal.ct(Dvar, certificates=False)
+#     604     # Verify that the certificates only contain allowed poles. 
+#     605     # Factor first and then check for the factors.
+#     606     # TODO: This can likely be done better. (i.e. check)
+#    (...)    621     #     print("\n[CT] The resulting system: {}".format(ct_system))
+#     622     #     print("\n[CT] The corresponding certificates: {}".format(certificates))
+#     625 return ct_system[0].parent().ideal(ct_system)
+
+# File ~/Library/SageMath-10-6/lib/python3.12/site-packages/ore_algebra/ideal.py:900, in OreLeftIdeal.ct(self, D, algebra, certificates, early_termination, infolevel, iteration_limit)
+#     898 # uncouple
+#     899 info(1, lazy_string(lambda: datetime.today().ctime() + ": Uncoupling coupled system..."))
+# --> 900 T, U = uncouple(sys, extended=True, infolevel=infolevel+2)
+#     901 info(2, lazy_string(lambda: datetime.today().ctime() + ": Uncoupling completed."))
+#     902 if algebra.is_D():
+
+# File ~/Library/SageMath-10-6/lib/python3.12/site-packages/ore_algebra/ideal.py:1188, in uncouple(mat, algebra, extended, column_swaps, infolevel)
+#    1186 A_ff = None
+#    1187 n = len(mat)
+# -> 1188 m = len(mat[0])
+#    1189 U = [None]*n
+#    1190 V = [None]*n
+
+# IndexError: list index out of range

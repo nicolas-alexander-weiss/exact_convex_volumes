@@ -20,10 +20,9 @@ This package implements the algorithms described in
 
 which rests on work by [Lairez, Mezzarobba, and Safey El Din](http://dx.doi.org/10.1145/3326229.3326262).
 
-The experimental results of [1] can be reproduced using the Jupyter notebooks:
+The experimental results of [1] can be reproduced using the Jupyter notebook:
 
-- Notebook 1
-- Notebook 2
+- "examples/Examples from Ramesh, Weiss (2026).ipynb"
 
 This is a project of [Lakshmi Ramesh](https://lax202.github.io) and [Nicolas Weiss](https://nicolas-alexander-weiss.github.io).
 
