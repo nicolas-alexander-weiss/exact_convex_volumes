@@ -1,5 +1,7 @@
 # Exact Volumes of Semi-Algebraic Convex Bodies
 
+[![DOI](https://zenodo.org/badge/1033727412.svg)](https://doi.org/10.5281/zenodo.18472470)
+
 ## Description
 
 We provide a SageMath package to compute the exact volume of semi-algebraic convex bodies. The input consists of $k$ concave polynomials
