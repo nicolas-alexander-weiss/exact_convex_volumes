@@ -18,7 +18,7 @@ The computation of exact volumes of semi-algebraic convex bodies defined by fini
 
 This package implements the algorithms described in
 
-  [1] L. Ramesh, N. Weiss (2026): "Exact Volumes of Semi-Algebraic Convex Bodies". [arXiv:to_appear](https://arxiv.org)
+  [1] L. Ramesh, N. Weiss (2026): "Exact Volumes of Semi-Algebraic Convex Bodies", [arXiv:2602.04707](https://arxiv.org/abs/2602.04707).
 
 which rests on work by [Lairez, Mezzarobba, and Safey El Din](http://dx.doi.org/10.1145/3326229.3326262).
 
