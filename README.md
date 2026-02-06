@@ -1,6 +1,6 @@
 # Exact Volumes of Semi-Algebraic Convex Bodies
 
-[![DOI](https://zenodo.org/badge/1033727412.svg)](https://doi.org/10.5281/zenodo.18472470)
+[![DOI](https://zenodo.org/badge/1033727412.svg)](https://doi.org/10.5281/zenodo.18472470) [![arXiv](https://img.shields.io/badge/arXiv-2602.04707-red.svg)](https://arxiv.org/abs/2602.04707)
 
 ## Description
 
