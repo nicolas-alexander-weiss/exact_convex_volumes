@@ -48,7 +48,7 @@ class SmoothVolume:
 
     debug_level = 0 # Indicating amount of extra info printed during computation.
 
-    def __init__(self, fs, def_value, var_value_pairs, prec, strategy=None):
+    def __init__(self, fs, def_value, var_value_pairs, prec, strategy=None, debug_level=0):
         """
         Docstring for __init__
         
@@ -56,6 +56,9 @@ class SmoothVolume:
         def_value : non-negative element in QQ
         var_value_pairs : Dictionary with  variable:value   key-value-pairs, where value is in QQ.
         prec : Number of binary digits of precision, i.e. an accuracy of 2^{-prec}.
+
+        strategy : dict (see volume computation for details)
+        debug_level : int (to regulate the amount of printed details.)
         """
         self.fs = fs
         self.def_value = def_value
@@ -63,10 +66,14 @@ class SmoothVolume:
 
         self.prec = prec
         self.strategy = strategy
+        self.debug_level = debug_level
 
-        self.initial_data = {} # dict indexed by elements of QQ with values SmoothVolume
+        # Initialize data for the computation:
         self.vol = None # in CBF(prec)
-
+        self.PF_slice_vol = None # To hold the computed PF operator which annihilates the slice volume.
+        self.proj_var = None # To hold the variable onto which we project in this step.
+        self.initial_data = {} # dict indexed by elements of QQ with values SmoothVolume
+        
     def get_fdef(self):
         return tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(self.fs), [self.def_value]), self.var_value_pairs) 
 
@@ -82,8 +89,110 @@ class SmoothVolume:
         """ Runs the computation based on the provided data.
 
         [TODO] Allow for resumption of computation at later point.
+
+        -- Refactoring into Objects:
+        [TODO] Go through the below and make sure that it runs based on the input to the object.
+        [TODO] Adapt the debug messages to reflect the structure of the paper in fact.
+        [TODO] Make 1dim volume a method.
+        [TODO] Consider making the other helper functions a method, too.
+
+        [TODO] Make initial conditions SmoothVolume objects too. 
+            - First create dict of slice objects
+            - Then turn into dict of initial conditions
+        
+
         """
-        pass
+        # The evaluated polynomial
+        evaluated_poly = self.get_fdef()
+
+        if self.debug_level > 0:
+            print("[Vol1] Deformation value t: {}".format(self.def_value))
+            print("[Vol1] Slice taken at: {}".format(self.var_value_pairs))
+            print("[Vol1] Restricted deformed product: {}".format(evaluated_poly))
+
+        # Early exit if already univariate, then return 1-dim volume.
+        if len(evaluated_poly.parent().gens()) == 1:
+            if self.debug_level > 0:
+                print("[Vol1] The restricted polynomial is univariate, hence going into the 1-dim-volume routine.")
+            self.vol = get_1_dim_volume(self.fs, self.var_value_pairs, self.def_value, self.prec)
+            return
+
+        # Fix a projection variable (here just the first undetermined variable): 
+
+        if self.strategy == None:
+            self.proj_var = evaluated_poly.parent().gens()[0]
+        else:
+            self.proj_var = self.strategy["proj_var"](self.fs, self.def_value, self.var_value_pairs)
+
+        if self.debug_level > 0:
+            print("[Vol1] proj_var: {}".format(self.proj_var))
+
+        # Get the Picard-Fuchs operator and define the operator to be solved.
+        self.PF_slice_vol = get_picard_fuchs(self.fs, self.def_value, self.var_value_pairs, self.proj_var, self.strategy, debug_level=self.debug_level)
+        
+        Pdx = self.PF_slice_vol * self.PF_slice_vol.parent().gens()[0]
+
+        lead_coef = self.PF_slice_vol.leading_coefficient().numerator()
+        singular_locus = lead_coef.roots(AA, multiplicities=False) 
+
+        if self.debug_level > 0:
+            print("\n[Vol1] Order Pdx:", Pdx.order())
+            print("[Vol1] Leading coef:", Pdx.leading_coefficient())
+            print("[Vol1] Singular locus:", singular_locus)
+            if self.debug_level > 2:
+                print("[Vol1] Pdx = ", Pdx, "\n")
+
+        # Determine the branch points and corresponding critical values bounding the deformed set.
+        
+        # Numerical critical values:
+        relevant_crit_val = [pt[self.proj_var] for pt in project_deformed_intersection(self.fs, self.def_value, self.proj_var, self.var_value_pairs, self.prec)]
+        if self.debug_level > 0:
+            print("[Vol1] Relevant CritVals:", relevant_crit_val)
+
+        if len(relevant_crit_val) != 2:
+            raise ValueError("Computation returned too many (#={}) critical values: {}".format(len(relevant_crit_val), relevant_crit_val))
+        
+        min_crit_val = min(relevant_crit_val)
+        max_crit_val = max(relevant_crit_val)
+
+        # Set the interval in which we want to sample points, identify our branch points among
+        # TODO: Make sure that this uniquely identifies points of the singular locus.
+        xmin = singular_locus[np.argmin([np.abs(root - min_crit_val) for root in singular_locus])]
+        xmax = singular_locus[np.argmin([np.abs(root - max_crit_val) for root in singular_locus])]
+        
+        if self.debug_level > 0:
+            print("[Vol1] Identified the relevant critical values in the singular locus as: \nxmin = {}\nxmax = {}".format(xmin, xmax))
+
+        # apparent singularities (that are not singularities of our solution:)
+        xapparent = sorted([xi for xi in singular_locus if not xi in [xmin, xmax] and (xmin < xi) and (xi < xmax)])
+
+        if self.debug_level > 0:
+            print("[Vol1] Apparent singular points in the interval: ", xapparent)
+
+        # Determine points for initial data, such that transition matrix becomes invertible.
+        CBF = ComplexBallField(self.prec)
+        lower_bound = CBF(xmin).real()
+        upper_bound = CBF(min(xapparent)).real() if len(xapparent) > 0 else CBF(xmax).real()
+        initial_points = get_good_initial_points(self.PF_slice_vol, lower_bound, upper_bound, self.prec, debug_level=self.debug_level)
+        
+        if self.debug_level > 0:
+            print("[Vol1] Sampled initial points:", initial_points)
+
+        # Determine initial conditions (TODO: in parallel)
+        #{"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
+        self.initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":volume1(self.fs, self.def_value, var_value_pairs=self.var_value_pairs | {self.proj_var:proj_var_val}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level)} for proj_var_val in initial_points}
+        
+        if self.debug_level > 0:
+            print("[Vol1] Initial conditions", self.initial_conditions)
+
+        evaluation_condition = {"pt":xmax, "exponent":0}
+
+        if self.debug_level > 0:
+            print("[Vol1] Eval condition: ", evaluation_condition)
+
+        # Solve the initial value problem
+        self.vol = solve_diff_op(Pdx, self.initial_conditions, evaluation_condition, self.prec, xapparent, debug_level=self.debug_level)
+
 
     def get_volume(self):
         """
@@ -837,6 +946,12 @@ def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=No
 
     Concavity is NOT explicitly checked for.
     
+    Remark
+    ------
+    This is a wrapper for the SmoothVolume class.
+    It constructs a SmoothVolume object here and return output of get_volume().
+
+
     TODOs
     ------
     [TODO] Check that the initial points are actually good before evaluating (or add option to do so.)
@@ -844,96 +959,10 @@ def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=No
     [TODO] Parallelize computation of slices.
     """
 
-    # The evaluated polynomial
-    evaluated_poly = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [def_value]), var_value_pairs)
-    if debug_level > 0:
-        print("[Vol1] Deformation value t: {}".format(def_value))
-        print("[Vol1] Slice taken at: {}".format(var_value_pairs))
-        print("[Vol1] Restricted deformed product: {}".format(evaluated_poly))
-
-    # Early exit if already univariate, then return 1-dim volume.
-    if len(evaluated_poly.parent().gens()) == 1:
-        if debug_level > 0:
-            print("[Vol1] The restricted polynomial is univariate, hence going into the 1-dim-volume routine.")
-        return get_1_dim_volume(fs, var_value_pairs, def_value, prec)
-
-    # Fix a projection variable (here just the first undetermined variable): 
-
-    if strategy == None:
-        proj_var = evaluated_poly.parent().gens()[0]
-    else:
-        proj_var = strategy["proj_var"](fs, def_value, var_value_pairs)
-
-    if debug_level > 0:
-        print("[Vol1] proj_var: {}".format(proj_var))
-
-    # Get the Picard-Fuchs operator and define the operator to be solved.
-    P = get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy, debug_level=debug_level)
-    Pdx = P * P.parent().gens()[0]
-
-    lead_coef = P.leading_coefficient().numerator()
-    singular_locus = lead_coef.roots(AA, multiplicities=False) 
-
-    if debug_level > 0:
-        print("\n[Vol1] Order Pdx:", Pdx.order())
-        print("[Vol1] Leading coef:", Pdx.leading_coefficient())
-        print("[Vol1] Singular locus:", singular_locus)
-        if debug_level > 2:
-            print("[Vol1] Pdx = ", Pdx, "\n")
-
-    # Determine the branch points and corresponding critical values bounding the deformed set.
-    
-    # Numerical critical values:
-    relevant_crit_val = [pt[proj_var] for pt in project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec)]
-    if debug_level > 0:
-        print("[Vol1] Relevant CritVals:", relevant_crit_val)
-
-    if len(relevant_crit_val) != 2:
-        raise ValueError("Computation returned too many (#={}) critical values: {}".format(len(relevant_crit_val), relevant_crit_val))
-    
-    min_crit_val = min(relevant_crit_val)
-    max_crit_val = max(relevant_crit_val)
-
-    # Set the interval in which we want to sample points, identify our branch points among
-    # TODO: Make sure that this uniquely identifies points of the singular locus.
-    xmin = singular_locus[np.argmin([np.abs(root - min_crit_val) for root in singular_locus])]
-    xmax = singular_locus[np.argmin([np.abs(root - max_crit_val) for root in singular_locus])]
-    
-    if debug_level > 0:
-        print("[Vol1] Identified the relevant critical values in the singular locus as: \nxmin = {}\nxmax = {}".format(xmin, xmax))
-
-    # apparent singularities (that are not singularities of our solution:)
-    xapparent = sorted([xi for xi in singular_locus if not xi in [xmin, xmax] and (xmin < xi) and (xi < xmax)])
-
-    if debug_level > 0:
-        print("[Vol1] Apparent singular points in the interval: ", xapparent)
-
-    # Determine points for initial data, such that transition matrix becomes invertible.
-    CBF = ComplexBallField(prec)
-    lower_bound = CBF(xmin).real()
-    upper_bound = CBF(min(xapparent)).real() if len(xapparent) > 0 else CBF(xmax).real()
-    initial_points = get_good_initial_points(P, lower_bound, upper_bound, prec, debug_level=debug_level)
-    
-    if debug_level > 0:
-        print("[Vol1] Sampled initial points:", initial_points)
-
-    # Determine initial conditions (TODO: in parallel)
-    #{"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
-    initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":volume1(fs, def_value, var_value_pairs=var_value_pairs | {proj_var:proj_var_val}, prec=prec, strategy=strategy, debug_level=debug_level)} for proj_var_val in initial_points}
-    
-    if debug_level > 0:
-        print("[Vol1] Initial conditions", initial_conditions)
-
-    evaluation_condition = {"pt":xmax, "exponent":0}
-
-    if debug_level > 0:
-        print("[Vol1] Eval condition: ", evaluation_condition)
-
-    # Solve the initial value problem
-    volume = solve_diff_op(Pdx, initial_conditions, evaluation_condition, prec, xapparent, debug_level=debug_level)
+    volObject = SmoothVolume(fs=fs,def_value=def_value,var_value_pairs=var_value_pairs,prec=prec, strategy=strategy,debug_level=debug_level)
 
     # Return the volume
-    return volume
+    return volObject.get_volume()
 
 
 def get_good_initial_points(P, x0, x1, prec, debug_level=0):
