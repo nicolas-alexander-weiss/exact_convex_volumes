@@ -24,11 +24,6 @@ from sage.all import (
 )
 
 #
-# Volumes as objects
-#
-
-
-#
 # Volumes as objects:
 #
 
@@ -36,6 +31,10 @@ class SmoothVolume:
     """ SmoothVolume is the object which holds all intermediate results of the 
     smooth volume computation. In particular, they usually hold all the parameters
     with which the smooth volume function were computed.
+
+    Note that the previous functions are still available, but they are wrappers to the 
+    methods of the SmoothVolume class. Also, all helper functions such as for the computation
+    for the PF operators remain separate.
 
     Features:
     - [TODO] Resume computations when they were aborted.
@@ -49,7 +48,7 @@ class SmoothVolume:
 
     debug_level = 0 # Indicating amount of extra info printed during computation.
 
-    def __init__(self, fs, def_value, var_value_pairs, prec):
+    def __init__(self, fs, def_value, var_value_pairs, prec, strategy=None):
         """
         Docstring for __init__
         
@@ -58,12 +57,13 @@ class SmoothVolume:
         var_value_pairs : Dictionary with  variable:value   key-value-pairs, where value is in QQ.
         prec : Number of binary digits of precision, i.e. an accuracy of 2^{-prec}.
         """
-        self.fs =  fs
+        self.fs = fs
         self.def_value = def_value
         self.var_value_pairs = var_value_pairs
 
         self.prec = prec
-        
+        self.strategy = strategy
+
         self.initial_data = {} # dict indexed by elements of QQ with values SmoothVolume
         self.vol = None # in CBF(prec)
 
@@ -80,7 +80,6 @@ class SmoothVolume:
 
     def start_computation(self):
         """ Runs the computation based on the provided data.
-        Picard-Fuchs-operators
 
         [TODO] Allow for resumption of computation at later point.
         """
@@ -88,13 +87,20 @@ class SmoothVolume:
 
     def get_volume(self):
         """
-        Returns the volume of the semi-algebraic set defined by
+        Returns the volume of the smooth semi-algebraic set defined by
         {prod(fs)-def_val>0} \cap C \cap {var_value_pairs}.
         """
         if self.vol == None:
             self.start_computation()
         
         return self.vol
+    
+    def __repr__(self):
+        """Returns a representation of the str."""
+        if self.vol == None:
+            return "SmoothVolume: None (use .get_volume() or .start_computation() to initiate computation)."
+            
+        return "SmoothVolume: " + str(self.vol)
 
 
 class Volume:
