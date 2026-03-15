@@ -182,12 +182,16 @@ class SmoothVolume:
 
         # Compute slice volumes first:
         self.slice_volumes = {}
+        # # Set up slice volume objects
         for pt_val in initial_points:
-            self.slice_volumes[pt_val] = volume1(self.fs, self.def_value, var_value_pairs=self.var_value_pairs | {self.proj_var:pt_val}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level)
+            self.slice_volumes[pt_val] = SmoothVolume(self.fs, self.def_value, var_value_pairs=self.var_value_pairs | {self.proj_var:pt_val}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level)
+        # # Start slice volume computation (potentially in parallel)
+        for pt_val, volObj in self.slice_volumes.items():
+            volObj.start_computation()
 
         # Construct initial conditions dict:
         # {"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
-        self.initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":self.slice_volumes[proj_var_val]} for proj_var_val in initial_points}
+        self.initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":self.slice_volumes[proj_var_val].get_volume()} for proj_var_val in initial_points}
         
         if self.debug_level > 0:
             print("[Vol1] Initial conditions", self.initial_conditions)
