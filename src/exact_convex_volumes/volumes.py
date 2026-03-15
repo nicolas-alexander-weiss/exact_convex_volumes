@@ -43,6 +43,7 @@ class SmoothVolume:
 
     Other:
     - [TODO] Have suitable getter and setter functions?
+    - [TODO] Create test cases for the object oriented implementation.
 
     """
 
@@ -240,6 +241,8 @@ class Volume:
     [TODO] Move volume2 computation to "start_computation"
     [TODO] Create wrapper in volume2() to construct Volume object.
     
+    [TODO] Create test cases for the object oriented implementation.
+
     """
     
     def __init__(self, fs, prec, strategy=None, debug_level=0):
