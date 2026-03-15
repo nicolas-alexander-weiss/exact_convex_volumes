@@ -46,8 +46,6 @@ class SmoothVolume:
 
     """
 
-    debug_level = 0 # Indicating amount of extra info printed during computation.
-
     def __init__(self, fs, def_value, var_value_pairs, prec, strategy=None, debug_level=0):
         """
         Docstring for __init__
@@ -96,7 +94,7 @@ class SmoothVolume:
         [TODO] Make 1dim volume a method.
         [TODO] Consider making the other helper functions a method, too.
 
-        [TODO] Make initial conditions SmoothVolume objects too. 
+        [Done] Make initial conditions SmoothVolume objects too. 
             - First create dict of slice objects
             - Then turn into dict of initial conditions
 
@@ -224,21 +222,164 @@ class SmoothVolume:
 
 
 class Volume:
-    """ This class encapsulates the computation of volume2.
-    In particular, it only considers a list of fs and then 
-    carries out the necessary computations.
+    """ Class wrapper for the computation of volume of semi-algebraic convex bodies.
 
-    Input
-    -----
-    fs : List of concave polynomials in QQ[x_1,..,x_n].
-    prec : Target number of precision bits.
+    Assumes that convex body is then given as
+        C = {x in RR^n | f(x) > 0 for all f in fs}
+    where 
+        f is concave, for all f in fs.
+
 
     Features:
     ------
     - [TODO]: Ensure that precision is really the output precision.
+
+    Implementation;
+    ------
+    [TODO] Copy structure similar to SmoothVolume
+    [TODO] Move volume2 computation to "start_computation"
+    [TODO] Create wrapper in volume2() to construct Volume object.
     
     """
-    pass
+    
+    def __init__(self, fs, prec, strategy=None, debug_level=0):
+        """
+        Docstring for __init__
+        
+        Parameters
+        ----------
+        fs : list of polys in QQ[x_1,..., x_n]
+            Concave polynomials defining the convex body.
+        prec : int
+            Number of binary digits of precision.
+        strategy : dict, optional
+            A dictionary providing strategies, such as order of projections.
+        debug_level : int, optional
+            Amount of intermediate results to be printed.
+        """
+        self.fs = fs
+
+        self.prec = prec
+        self.strategy = strategy
+        self.debug_level = debug_level
+
+        # Initialize data for the computation:
+        self.vol = None # in CBF(prec)
+        self.PF_deform_vol = None # To hold the computed PF operator which annihilates Vol(C_t) (i.e. the volume of the deformed set).
+        self.deformed_volumes = None # dict indexed by elements of QQ with values SmoothVolume
+        
+    def get_fdef(self):
+        return tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(self.fs), [self.def_value]), self.var_value_pairs) 
+
+    def is_one_dim(self):
+        """
+        Returns true if only one free variable remains after 
+        fixing all values in self.var_value_pairs.
+        """
+        return self.get_fdef().parent().ngens() == 1
+
+
+    def start_computation(self):
+        """ Runs the computation based on the provided data.
+
+        [TODO] Allow for resumption of computation at later point.
+
+        -- Refactoring into Objects:
+        [Done] Go through the below and make sure that it runs based on the input to the object.
+        [TODO] Adapt the debug messages to reflect the structure of the paper in fact.
+        [TODO] Make 1dim volume a method.
+        [TODO] Consider making the other helper functions a method, too.
+
+        [Done] Make initial conditions SmoothVolume objects too. 
+            - First create dict of slice objects
+            - Then turn into dict of initial conditions
+
+        [TODO] Allow for parallel computation of the slice volumes.
+
+
+        [TODO] If only one function provided return smooth volume object. (do this in __init__())
+        [TODO] Move the assertions to init.
+        
+        """
+        if self.debug_level > 0:
+            print("[Vol2] Start of volume2:")
+            print("[Vol2] fs = {}".format(self.fs))
+
+        # Early exit, if only 1 function:
+        if len(self.fs) == 1:
+            self.vol = volume1(self.fs,0, {}, self.prec, self.strategy)
+
+        # TODO: Assertions (move to __init__)
+        assert(tools.all_from_same_parent_ring(self.fs))
+
+        # Get Picard Fuchs
+        self.PF_deform_vol = get_picard_fuchs_t(self.fs, self.strategy, debug_level=self.debug_level)
+        t = self.PF_deform_vol.parent().base_ring().gens()[0]
+
+        if self.debug_level > 0:
+            print("[Vol2] Pt = ".format(self.PF_deform_vol))
+            print("[Vol2] order(Pt) = {}".format(self.PF_deform_vol.order()))
+
+
+        # Choose initial points between 0 and the smallest singular point larger than 0.
+        lead_coef = self.PF_deform_vol.leading_coefficient().numerator()
+        sols = msolve.variety_msolve([lead_coef], self.prec)    # Compute real solutions with msolve
+        
+        # TODO: Define t here. Why does this work without?
+        singular_locus = [sol[t] for sol in sols]
+
+        if self.debug_level > 0:
+            print("[Vol2] Lead coef = {}".format(lead_coef))
+            print("[Vol2] Singular Locus = {}".format(singular_locus))
+
+        assert(0 in singular_locus)
+        index_zero = sorted(singular_locus).index(0)
+        
+        smallest_positive_singular_point = sorted(singular_locus)[index_zero + 1] if index_zero + 1 < len(singular_locus) else QQ(1/10)
+
+        CBF = ComplexBallField(self.prec)
+        initial_points = get_good_initial_points(self.PF_deform_vol, 0, CBF(smallest_positive_singular_point).real(), self.prec)
+
+        if self.debug_level > 0:
+            print("[Vol2] Initial points for Pt: {}".format(initial_points))
+
+        # Compute deformed volumes first: (volumes of the t slices)
+        self.deformed_volumes = {}
+        for t_val in initial_points:
+            self.deformed_volumes[t_val] = SmoothVolume(self.fs, t_val, var_value_pairs={}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level)
+        # # Start computation
+        for t_val, smoothVolObj in self.deformed_volumes.items():
+            smoothVolObj.start_computation()
+
+        # Set up initial conditions
+        initial_conditions = {t_val:{"exponent":0, "coef":self.deformed_volumes[t_val].get_volume()} for t_val in initial_points}
+
+        if self.debug_level > 0:
+            print("[Vol2] Initial conditions for Pt: {}".format(initial_conditions))
+
+        # Set evaluation condition at 0
+        evaluation_condition = {"pt":0, "exponent":0}
+
+        # Solve the initial value problem
+        self.vol = solve_diff_op(self.PF_deform_vol, initial_conditions, evaluation_condition, self.prec, [])
+    
+        
+    def get_volume(self):
+        """
+        Returns the volume of the semi-algebraic set defined by
+        C = {x in RR^n | f(x) > 0 for all f in fs}.
+        """
+        if self.vol == None:
+            self.start_computation()
+        
+        return self.vol
+    
+    def __repr__(self):
+        """Returns a representation of the Volume object."""
+        if self.vol == None:
+            return "Volume: None (use .get_volume() or .start_computation() to initiate computation)."
+            
+        return "Volume: " + str(self.vol)
 
 # 
 #
@@ -1095,61 +1236,9 @@ def volume2(fs, prec, strategy=None, debug_level=0):
     Concavity is NOT explicitly checked for.
     """
 
-    if debug_level > 0:
-        print("[Vol2] Start of volume2:")
-        print("[Vol2] fs = {}".format(fs))
+    volObj = Volume(fs=fs, prec=prec, strategy=strategy, debug_level=debug_level)
 
-    # Early exit, if only 1 function:
-    if len(fs) == 1:
-        return volume1(fs,0, {}, prec, strategy)
-
-    # TODO: Assertions
-    assert(tools.all_from_same_parent_ring(fs))
-
-    # Get Picard Fuchs
-    Pt = get_picard_fuchs_t(fs, strategy, debug_level=debug_level)
-    t = Pt.parent().base_ring().gens()[0]
-
-    if debug_level > 0:
-        print("[Vol2] Pt = ".format(Pt))
-        print("[Vol2] order(Pt) = {}".format(Pt.order()))
-
-
-    # Choose initial points between 0 and the smallest singular point larger than 0.
-    lead_coef = Pt.leading_coefficient().numerator()
-    sols = msolve.variety_msolve([lead_coef], prec)    # Compute real solutions with msolve
-    
-    # TODO: Define t here. Why does this work without?
-    singular_locus = [sol[t] for sol in sols]
-
-    if debug_level > 0:
-        print("[Vol2] Lead coef = {}".format(lead_coef))
-        print("[Vol2] Singular Locus = {}".format(singular_locus))
-
-    assert(0 in singular_locus)
-    index_zero = sorted(singular_locus).index(0)
-    
-    smallest_positive_singular_point = sorted(singular_locus)[index_zero + 1] if index_zero + 1 < len(singular_locus) else QQ(1/10)
-
-    CBF = ComplexBallField(prec)
-    initial_points = get_good_initial_points(Pt, 0, CBF(smallest_positive_singular_point).real(), prec)
-
-    if debug_level > 0:
-        print("[Vol2] Initial points for Pt: {}".format(initial_points))
-
-    # Compute initial conditions (volumes of the t slices)
-    initial_conditions = {ti:{"exponent":0, "coef":volume1(fs, ti, var_value_pairs={}, prec=prec, strategy=strategy, debug_level=debug_level)} for ti in initial_points}
-
-    if debug_level > 0:
-        print("[Vol2] Initial conditions for Pt: {}".format(initial_conditions))
-
-    # Set evaluation condition at 0
-    evaluation_condition = {"pt":0, "exponent":0}
-
-    # Solve the initial value problem
-    volume = solve_diff_op(Pt, initial_conditions, evaluation_condition, prec, [])
-    
-    return volume
+    return volObj.get_volume()
 
 
 def vol_lp_ball_closed_formula(n,p,r, prec, use_complex=True):
