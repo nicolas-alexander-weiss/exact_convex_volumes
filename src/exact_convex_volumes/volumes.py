@@ -72,7 +72,7 @@ class SmoothVolume:
         self.vol = None # in CBF(prec)
         self.PF_slice_vol = None # To hold the computed PF operator which annihilates the slice volume.
         self.proj_var = None # To hold the variable onto which we project in this step.
-        self.initial_data = {} # dict indexed by elements of QQ with values SmoothVolume
+        self.slice_volumes = None # dict indexed by elements of QQ with values SmoothVolume
         
     def get_fdef(self):
         return tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(self.fs), [self.def_value]), self.var_value_pairs) 
@@ -91,7 +91,7 @@ class SmoothVolume:
         [TODO] Allow for resumption of computation at later point.
 
         -- Refactoring into Objects:
-        [TODO] Go through the below and make sure that it runs based on the input to the object.
+        [Done] Go through the below and make sure that it runs based on the input to the object.
         [TODO] Adapt the debug messages to reflect the structure of the paper in fact.
         [TODO] Make 1dim volume a method.
         [TODO] Consider making the other helper functions a method, too.
@@ -99,7 +99,8 @@ class SmoothVolume:
         [TODO] Make initial conditions SmoothVolume objects too. 
             - First create dict of slice objects
             - Then turn into dict of initial conditions
-        
+
+        [TODO] Allow for parallel computation of the slice volumes.
 
         """
         # The evaluated polynomial
@@ -178,9 +179,15 @@ class SmoothVolume:
         if self.debug_level > 0:
             print("[Vol1] Sampled initial points:", initial_points)
 
-        # Determine initial conditions (TODO: in parallel)
-        #{"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
-        self.initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":volume1(self.fs, self.def_value, var_value_pairs=self.var_value_pairs | {self.proj_var:proj_var_val}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level)} for proj_var_val in initial_points}
+
+        # Compute slice volumes first:
+        self.slice_volumes = {}
+        for pt_val in initial_points:
+            self.slice_volumes[pt_val] = volume1(self.fs, self.def_value, var_value_pairs=self.var_value_pairs | {self.proj_var:pt_val}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level)
+
+        # Construct initial conditions dict:
+        # {"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
+        self.initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":self.slice_volumes[proj_var_val]} for proj_var_val in initial_points}
         
         if self.debug_level > 0:
             print("[Vol1] Initial conditions", self.initial_conditions)
