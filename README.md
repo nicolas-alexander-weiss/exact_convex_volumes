@@ -65,7 +65,7 @@ If you would like to browse the documentation to this package in an html page yo
 
 - [x] First complete implementation.
 - [ ] Generate the docs automatically and host online.
-- [ ] Volumes as objects: 
+- [x] Volumes as objects: 
       - [x] Store computed PF operators
       - [x] Store computed slice / deformed volumes
       - [ ] Resume computations
