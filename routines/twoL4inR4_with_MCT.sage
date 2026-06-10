@@ -1,8 +1,8 @@
-# TODO: Compute the volume of the intersection of two L2 balls in R4 with centers 0 and (1,0,0,0) 
+# TODO: Compute the volume of the intersection of two L4 balls in R4 with centers 0 and (1,0,0,0) 
 #   But compute the telescopers usign Julia.
 
 # Output: [4.37856654871924288558479945106166817027285180219207050298477722007062424113388554779398481745775 +/- 9.11e-96] + [+/- 2.72e-96]*I
-#
+# Time: 15h
 # Remark: Only worked with 500 bits target/working precision.
 
 #
@@ -94,5 +94,7 @@ prec = 500  # Important. Accuracy should be high enough! (last time it faded!)
 
 # Now essentially manually go through the volume 2 function.
 vol = Volume(fs, prec, strategy=strategy, debug_level=3, use_julia_for_CT=True)
+
+%time vol.start_computation()
 
 print(vol.vol)
