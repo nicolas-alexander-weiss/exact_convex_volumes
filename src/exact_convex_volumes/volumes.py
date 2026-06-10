@@ -207,6 +207,118 @@ class SmoothVolume:
         self.vol = solve_diff_op(Pdx, self.initial_conditions, evaluation_condition, self.prec, xapparent, debug_level=self.debug_level)
 
 
+    def resume_computation(self, update_prec=400):
+        self.prec = update_prec
+
+        if self.PF_slice_vol == None:
+            self.start_computation()
+        else:
+            evaluated_poly = self.get_fdef()
+
+            if self.debug_level > 0:
+                print("[Vol1] Deformation value t: {}".format(self.def_value))
+                print("[Vol1] Slice taken at: {}".format(self.var_value_pairs))
+                print("[Vol1] Restricted deformed product: {}".format(evaluated_poly))
+
+            # Early exit if already univariate, then return 1-dim volume.
+            if len(evaluated_poly.parent().gens()) == 1:
+                if self.debug_level > 0:
+                    print("[Vol1] The restricted polynomial is univariate, hence going into the 1-dim-volume routine.")
+                self.vol = get_1_dim_volume(self.fs, self.var_value_pairs, self.def_value, self.prec)
+                return
+
+            # Fix a projection variable (here just the first undetermined variable): 
+            if self.proj_var == None:
+                if self.strategy == None:
+                    self.proj_var = evaluated_poly.parent().gens()[0]
+                else:
+                    self.proj_var = self.strategy["proj_var"](self.fs, self.def_value, self.var_value_pairs)
+
+            if self.debug_level > 0:
+                print("[Vol1] proj_var: {}".format(self.proj_var))
+
+            # Get the Picard-Fuchs operator and define the operator to be solved.
+            if self.PF_slice_vol == None:
+                self.PF_slice_vol = get_picard_fuchs(self.fs, self.def_value, self.var_value_pairs, self.proj_var, self.strategy, debug_level=self.debug_level, use_julia_for_CT=self.use_julia_for_CT)
+            
+            Pdx = self.PF_slice_vol * self.PF_slice_vol.parent().gens()[0]
+
+            lead_coef = self.PF_slice_vol.leading_coefficient().numerator()
+            singular_locus = lead_coef.roots(AA, multiplicities=False) 
+
+            if self.debug_level > 0:
+                print("\n[Vol1] Order Pdx:", Pdx.order())
+                print("[Vol1] Leading coef:", Pdx.leading_coefficient())
+                print("[Vol1] Singular locus:", singular_locus)
+                if self.debug_level > 2:
+                    print("[Vol1] Pdx = ", Pdx, "\n")
+
+            # Determine the branch points and corresponding critical values bounding the deformed set.
+            
+            # Numerical critical values:
+            relevant_crit_val = [pt[self.proj_var] for pt in project_deformed_intersection(self.fs, self.def_value, self.proj_var, self.var_value_pairs, self.prec)]
+            if self.debug_level > 0:
+                print("[Vol1] Relevant CritVals:", relevant_crit_val)
+
+            if len(relevant_crit_val) != 2:
+                raise ValueError("Computation returned too many (#={}) critical values: {}".format(len(relevant_crit_val), relevant_crit_val))
+            
+            min_crit_val = min(relevant_crit_val)
+            max_crit_val = max(relevant_crit_val)
+
+            # Set the interval in which we want to sample points, identify our branch points among
+            # TODO: Make sure that this uniquely identifies points of the singular locus.
+            xmin = singular_locus[np.argmin([np.abs(root - min_crit_val) for root in singular_locus])]
+            xmax = singular_locus[np.argmin([np.abs(root - max_crit_val) for root in singular_locus])]
+            
+            if self.debug_level > 0:
+                print("[Vol1] Identified the relevant critical values in the singular locus as: \nxmin = {}\nxmax = {}".format(xmin, xmax))
+
+            # apparent singularities (that are not singularities of our solution:)
+            xapparent = sorted([xi for xi in singular_locus if not xi in [xmin, xmax] and (xmin < xi) and (xi < xmax)])
+
+            if self.debug_level > 0:
+                print("[Vol1] Apparent singular points in the interval: ", xapparent)
+
+            # Determine points for initial data, such that transition matrix becomes invertible.
+            CBF = ComplexBallField(self.prec)
+            lower_bound = CBF(xmin).real()
+            upper_bound = CBF(min(xapparent)).real() if len(xapparent) > 0 else CBF(xmax).real()
+            initial_points = get_good_initial_points(self.PF_slice_vol, lower_bound, upper_bound, self.prec, debug_level=self.debug_level)
+            
+            if self.debug_level > 0:
+                print("[Vol1] Sampled initial points:", initial_points)
+
+
+            # Compute slice volumes first:
+            # self.slice_volumes = {}   # Already are set up.
+            # # Set up slice volume objects
+            #for pt_val in initial_points:
+            #    self.slice_volumes[pt_val] = SmoothVolume(self.fs, self.def_value, var_value_pairs=self.var_value_pairs | {self.proj_var:pt_val}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level, use_julia_for_CT=self.use_julia_for_CT)
+            # # Start slice volume computation (potentially in parallel)
+            for pt_val, smvol in self.slice_volumes.items():
+                if smvol.PF_slice_vol == None:
+                    smvol.start_computation()
+                else:
+                    smvol.resume_computation(update_prec=update_prec)
+
+            # Construct initial conditions dict:
+            # {"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
+            self.initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":self.slice_volumes[proj_var_val].get_volume()} for proj_var_val in initial_points}
+            
+            if self.debug_level > 0:
+                print("[Vol1] Initial conditions", self.initial_conditions)
+
+            evaluation_condition = {"pt":xmax, "exponent":0}
+
+            if self.debug_level > 0:
+                print("[Vol1] Eval condition: ", evaluation_condition)
+
+            # Solve the initial value problem
+            self.vol = solve_diff_op(Pdx, self.initial_conditions, evaluation_condition, self.prec, xapparent, debug_level=self.debug_level)
+
+
+
     def get_volume(self):
         """
         Returns the volume of the smooth semi-algebraic set defined by
@@ -223,6 +335,58 @@ class SmoothVolume:
             return "SmoothVolume: None (use .get_volume() or .start_computation() to initiate computation)."
             
         return "SmoothVolume: " + str(self.vol)
+
+
+def smvol_from_data(data, fs, def_value, var_value_pairs, prec, strategy, debug_level, use_julia_for_CT):
+
+    smvol = SmoothVolume(fs, def_value, var_value_pairs, prec, strategy=strategy, debug_level=debug_level, use_julia_for_CT=use_julia_for_CT)
+
+    if smvol.is_one_dim():
+        return smvol
+
+    # Initialize data for the computation:
+    smvol.vol = None # in CBF(prec)
+
+    smvol.proj_var = fs[0].parent()(data["attributes"]["proj_var"]["__repr__"]) # To hold the variable onto which we project in this step.
+    
+    W = rational_weyl_algebra(PolynomialRing(QQ,smvol.proj_var))
+    smvol.PF_slice_vol = W(data["attributes"]["PF_slice_vol"]["__repr__"]) # To hold the computed PF operator which annihilates the slice volume.
+    
+    
+    smvol.slice_volumes = {QQ(item["key"]["__repr__"]):smvol_from_data(item["value"],fs=fs, def_value=def_value, 
+                                                                       var_value_pairs= var_value_pairs | {smvol.proj_var:QQ(item["key"]["__repr__"])},
+                                                                       prec=prec,strategy=strategy,debug_level=debug_level, use_julia_for_CT=use_julia_for_CT) for item in data["attributes"]["slice_volumes"]["items"] }  # dict indexed by elements of QQ with values SmoothVolume
+   
+    return smvol
+
+def last_variable_proj_var_strategy(fs, deform_value, var_value_pairs):
+    evaluated_poly = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [deform_value]), var_value_pairs)
+
+    return evaluated_poly.parent().gens()[-1]
+
+
+def vol_from_json(filestr, debug_level):
+    data = load_json_file(filestr)
+
+    R = PolynomialRing(QQ, "x", 4)
+
+    fs = [R(f["__repr__"]) for f in data["attributes"]["fs"]]
+    prec = sage_eval(data["attributes"]["prec"]["__repr__"])
+    strategy={"proj_var":last_variable_proj_var_strategy}
+    
+    use_julia_for_CT=False
+
+    vol = Volume(fs, prec, strategy, debug_level=debug_level, use_julia_for_CT=use_julia_for_CT)
+
+    Wt = rational_weyl_algebra(PolynomialRing(QQ, "t"))
+
+    vol.PF_deform_vol = Wt(data["attributes"]["PF_deform_vol"]["__repr__"]) # To hold the computed PF operator which annihilates Vol(C_t) (i.e. the volume of the deformed set).
+    
+    
+    
+    vol.deformed_volumes = {QQ(item["key"]["__repr__"]):smvol_from_data(item["value"],fs, QQ(item["key"]["__repr__"]),{},prec,strategy,debug_level, use_julia_for_CT) for item in data["attributes"]["deformed_volumes"]["items"] } # dict indexed by elements of QQ with values SmoothVolume
+
+    return vol
 
 
 class Volume:
@@ -288,7 +452,7 @@ class Volume:
         return self.get_fdef().parent().ngens() == 1
 
 
-    def start_computation(self):
+    def start_computation(self, parallel=False):
         """ Runs the computation based on the provided data.
 
         [TODO] Allow for resumption of computation at later point.
@@ -372,7 +536,32 @@ class Volume:
         # Solve the initial value problem
         self.vol = solve_diff_op(self.PF_deform_vol, initial_conditions, evaluation_condition, self.prec, [])
     
-        
+    def resume_computation(self, update_prec=400):
+        self.prec = update_prec
+
+        if self.PF_deform_vol == None:
+            self.start_computation()
+        else:
+            for (val,smvol) in self.deformed_volumes.items():
+                if smvol.PF_slice_vol == None:
+                    smvol.start_computation()
+                else:
+                    smvol.resume_computation(update_prec=update_prec)
+
+            
+                # Set up initial conditions
+                initial_conditions = {t_val:{"exponent":0, "coef":self.deformed_volumes[t_val].get_volume()} for t_val in self.deformed_volumes.keys()}
+
+                if self.debug_level > 0:
+                    print("[Vol2] Initial conditions for Pt: {}".format(initial_conditions))
+
+                # Set evaluation condition at 0
+                evaluation_condition = {"pt":0, "exponent":0}
+
+                # Solve the initial value problem
+                self.vol = solve_diff_op(self.PF_deform_vol, initial_conditions, evaluation_condition, self.prec, [])
+            
+
     def get_volume(self):
         """
         Returns the volume of the semi-algebraic set defined by
@@ -391,6 +580,21 @@ class Volume:
         return "Volume: " + str(self.vol)
 
 # 
+#
+#
+
+# GPT Build Deserializer:
+import json
+import re
+
+from sage.all import QQ, PolynomialRing
+
+
+
+def load_json_file(filename):
+    with open(filename, "r", encoding="utf-8") as f:
+        return json.load(f)
+#
 #
 #
         
