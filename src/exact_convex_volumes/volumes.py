@@ -11,6 +11,7 @@ from ore_algebra import OreAlgebra
 # Python Imports
 
 import numpy as np
+import os
 
 # Sage Imports
 
@@ -1129,11 +1130,26 @@ def get_picard_fuchs_julia(A, proj_var, debug_level=0):
     date_prefix = current_time.strftime("%Y%m%d%H%M%S")
     
 
-    with open("julia_tmp/" + str(date_prefix) + "input.json", "w") as f:
+    # Get path of MCT_interface.jl (same as the path of the other src files)
+    # Q: Is there a better way?
+    MCT_path = os.path.join(os.path.dirname(tools.__file__), "MCT_interface.jl")
+    
+    # Make Julia tmp folder
+    julia_tmp_folder_name = "julia_tmp"
+    if not os.path.isdir(julia_tmp_folder_name):
+        os.mkdir(julia_tmp_folder_name)
+
+    # in and out file
+    MCT_infile_path = os.path.join(julia_tmp_folder_name, str(date_prefix) + "input.json")
+    MCT_outfile_path = os.path.join(julia_tmp_folder_name,  str(date_prefix) + "output.txt")
+
+    # Write the infile
+    with open(MCT_infile_path, "w") as f:
         json.dump(data, f)
 
+
     result = subprocess.run(
-    ["julia", "+1.10", "MCT_interface.jl", "julia_tmp/" + str(date_prefix) +"input.json", "julia_tmp/" +  str(date_prefix) +"output.txt"],
+    ["julia", "+1.10", MCT_path, MCT_infile_path, MCT_outfile_path],
     # text=True,
     # capture_output=True
     )
@@ -1152,7 +1168,7 @@ def get_picard_fuchs_julia(A, proj_var, debug_level=0):
     # print("STDERR:")
     # print(result.stderr)
 
-    with open("julia_tmp/" + str(date_prefix) + "output.txt", "r") as f:
+    with open(MCT_outfile_path, "r") as f:
         PF_str = f.read().strip()
 
     # Build the univariate rational WeylAlgebra
