@@ -392,25 +392,7 @@ class Volume:
             
         return "Volume: " + str(self.vol)
 
-# 
-#
-#
 
-# GPT Build Deserializer:
-import json
-import re
-
-from sage.all import QQ, PolynomialRing
-
-
-
-def load_json_file(filename):
-    with open(filename, "r", encoding="utf-8") as f:
-        return json.load(f)
-#
-#
-#
-        
 # Custom exceptions:
 
 class BadPointsError(Exception):
@@ -1045,7 +1027,7 @@ def rational_weyl_algebra(polyRing):
 
     return OreAlgebra(fracField, *[("D" + str(var), {}, {var : polyRing(1)}) for var in polyRing.gens()])
 
-def creative_telescoping(I, proj_var, strategy=None, debug_level=0, method="Chyzak"):
+def creative_telescoping(I, proj_var, strategy=None, debug_level=0):
     """ Integrates out all but the variable proj_var from the R or D ideal I.
 
     The result is an ideal contained in:     (I + dx_1 * D + ...+ dx_n *D) \cap D_x0
