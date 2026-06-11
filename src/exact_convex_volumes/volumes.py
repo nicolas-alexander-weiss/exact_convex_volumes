@@ -11,6 +11,7 @@ from ore_algebra import OreAlgebra
 # Python Imports
 
 import numpy as np
+import os
 
 # Sage Imports
 
@@ -47,7 +48,7 @@ class SmoothVolume:
 
     """
 
-    def __init__(self, fs, def_value, var_value_pairs, prec, strategy=None, debug_level=0):
+    def __init__(self, fs, def_value, var_value_pairs, prec, strategy=None, debug_level=0, use_julia_for_CT=False):
         """
         Docstring for __init__
         
@@ -72,6 +73,9 @@ class SmoothVolume:
         self.PF_slice_vol = None # To hold the computed PF operator which annihilates the slice volume.
         self.proj_var = None # To hold the variable onto which we project in this step.
         self.slice_volumes = None # dict indexed by elements of QQ with values SmoothVolume
+
+        # Store the Julia flag
+        self.use_julia_for_CT = use_julia_for_CT
         
     def get_fdef(self):
         return tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(self.fs), [self.def_value]), self.var_value_pairs) 
@@ -128,7 +132,7 @@ class SmoothVolume:
             print("[Vol1] proj_var: {}".format(self.proj_var))
 
         # Get the Picard-Fuchs operator and define the operator to be solved.
-        self.PF_slice_vol = get_picard_fuchs(self.fs, self.def_value, self.var_value_pairs, self.proj_var, self.strategy, debug_level=self.debug_level)
+        self.PF_slice_vol = get_picard_fuchs(self.fs, self.def_value, self.var_value_pairs, self.proj_var, self.strategy, debug_level=self.debug_level, use_julia_for_CT=self.use_julia_for_CT)
         
         Pdx = self.PF_slice_vol * self.PF_slice_vol.parent().gens()[0]
 
@@ -183,7 +187,7 @@ class SmoothVolume:
         self.slice_volumes = {}
         # # Set up slice volume objects
         for pt_val in initial_points:
-            self.slice_volumes[pt_val] = SmoothVolume(self.fs, self.def_value, var_value_pairs=self.var_value_pairs | {self.proj_var:pt_val}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level)
+            self.slice_volumes[pt_val] = SmoothVolume(self.fs, self.def_value, var_value_pairs=self.var_value_pairs | {self.proj_var:pt_val}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level, use_julia_for_CT=self.use_julia_for_CT)
         # # Start slice volume computation (potentially in parallel)
         for pt_val, volObj in self.slice_volumes.items():
             volObj.start_computation()
@@ -203,7 +207,6 @@ class SmoothVolume:
         # Solve the initial value problem
         self.vol = solve_diff_op(Pdx, self.initial_conditions, evaluation_condition, self.prec, xapparent, debug_level=self.debug_level)
 
-
     def get_volume(self):
         """
         Returns the volume of the smooth semi-algebraic set defined by
@@ -222,6 +225,12 @@ class SmoothVolume:
         return "SmoothVolume: " + str(self.vol)
 
 
+def last_variable_proj_var_strategy(fs, deform_value, var_value_pairs):
+    evaluated_poly = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [deform_value]), var_value_pairs)
+
+    return evaluated_poly.parent().gens()[-1]
+
+
 class Volume:
     """ Class wrapper for the computation of volume of semi-algebraic convex bodies.
 
@@ -238,14 +247,12 @@ class Volume:
     Implementation;
     ------
     [TODO] Copy structure similar to SmoothVolume
-    [TODO] Move volume2 computation to "start_computation"
-    [TODO] Create wrapper in volume2() to construct Volume object.
     
     [TODO] Create test cases for the object oriented implementation.
 
     """
     
-    def __init__(self, fs, prec, strategy=None, debug_level=0):
+    def __init__(self, fs, prec, strategy=None, debug_level=0, use_julia_for_CT=False):
         """
         Docstring for __init__
         
@@ -270,6 +277,9 @@ class Volume:
         self.vol = None # in CBF(prec)
         self.PF_deform_vol = None # To hold the computed PF operator which annihilates Vol(C_t) (i.e. the volume of the deformed set).
         self.deformed_volumes = None # dict indexed by elements of QQ with values SmoothVolume
+
+        # Set the julia flag
+        self.use_julia_for_CT = use_julia_for_CT
         
     def get_fdef(self):
         return tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(self.fs), [self.def_value]), self.var_value_pairs) 
@@ -282,7 +292,7 @@ class Volume:
         return self.get_fdef().parent().ngens() == 1
 
 
-    def start_computation(self):
+    def start_computation(self, parallel=False):
         """ Runs the computation based on the provided data.
 
         [TODO] Allow for resumption of computation at later point.
@@ -316,7 +326,7 @@ class Volume:
         assert(tools.all_from_same_parent_ring(self.fs))
 
         # Get Picard Fuchs
-        self.PF_deform_vol = get_picard_fuchs_t(self.fs, self.strategy, debug_level=self.debug_level)
+        self.PF_deform_vol = get_picard_fuchs_t(self.fs, self.strategy, debug_level=self.debug_level, use_julia_for_CT = self.use_julia_for_CT)
         t = self.PF_deform_vol.parent().base_ring().gens()[0]
 
         if self.debug_level > 0:
@@ -328,7 +338,6 @@ class Volume:
         lead_coef = self.PF_deform_vol.leading_coefficient().numerator()
         sols = msolve.variety_msolve([lead_coef], self.prec)    # Compute real solutions with msolve
         
-        # TODO: Define t here. Why does this work without?
         singular_locus = [sol[t] for sol in sols]
 
         if self.debug_level > 0:
@@ -349,7 +358,7 @@ class Volume:
         # Compute deformed volumes first: (volumes of the t slices)
         self.deformed_volumes = {}
         for t_val in initial_points:
-            self.deformed_volumes[t_val] = SmoothVolume(self.fs, t_val, var_value_pairs={}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level)
+            self.deformed_volumes[t_val] = SmoothVolume(self.fs, t_val, var_value_pairs={}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level, use_julia_for_CT=self.use_julia_for_CT)
         # # Start computation
         for t_val, smoothVolObj in self.deformed_volumes.items():
             smoothVolObj.start_computation()
@@ -366,7 +375,6 @@ class Volume:
         # Solve the initial value problem
         self.vol = solve_diff_op(self.PF_deform_vol, initial_conditions, evaluation_condition, self.prec, [])
     
-        
     def get_volume(self):
         """
         Returns the volume of the semi-algebraic set defined by
@@ -385,6 +393,21 @@ class Volume:
         return "Volume: " + str(self.vol)
 
 # 
+#
+#
+
+# GPT Build Deserializer:
+import json
+import re
+
+from sage.all import QQ, PolynomialRing
+
+
+
+def load_json_file(filename):
+    with open(filename, "r", encoding="utf-8") as f:
+        return json.load(f)
+#
 #
 #
         
@@ -687,7 +710,7 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec
     
 
 
-def get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy=None, debug_level=0):
+def get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy=None, debug_level=0, use_julia_for_CT=False):
     """ Computes the Picard Fuchs operator for 
     Vol(proj_var) = Vol( p^{-1}(proj_var) \cap {fs \geq 0 forall s} \cap slice(var_value_pairs)).
 
@@ -718,8 +741,12 @@ def get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy=None, de
 
     # Construct the integrand
     A = construct_integrand(fs, def_value, var_value_pairs, proj_var, debug_level=debug_level)
-    
     W = rational_weyl_algebra(A.parent().ring())
+
+    if use_julia_for_CT:
+        if debug_level > 0:
+            print("[CT] Entering julia for MCT.jl")
+        return get_picard_fuchs_julia(A, W(str(proj_var)))
 
     annA = W.ideal([A*D-D(A) for D in W.gens()]) # construct the annihilating ideal
 
@@ -817,7 +844,7 @@ def construct_integrand(fs, def_value, var_value_pairs, proj_var, prim_var_name=
     return A
 
 
-def get_picard_fuchs_t(fs, strategy=None, debug_level=0):
+def get_picard_fuchs_t(fs, strategy=None, debug_level=0, use_julia_for_CT=False):
     """ Computes the Picard Fuchs operator for Vol(Ct).
 
     The functions in t>0 
@@ -851,6 +878,13 @@ def get_picard_fuchs_t(fs, strategy=None, debug_level=0):
 
     Wt = rational_weyl_algebra(At.parent().ring())
 
+    if use_julia_for_CT:
+        if debug_level > 0:
+            print("[CT] Entering julia for MCT.jl")
+
+        return get_picard_fuchs_julia(At, Wt(def_var_name), debug_level=debug_level)
+
+
     annAt = Wt.ideal([At*D-D(At) for D in Wt.gens()]) # construct the annihilating ideal
 
     # To be precise, below we simply construct some subset of the integration ideal, 
@@ -858,6 +892,103 @@ def get_picard_fuchs_t(fs, strategy=None, debug_level=0):
     intIdeal_t = creative_telescoping(annAt, At.parent().ring()(def_var_name), debug_level=debug_level)
 
     return intIdeal_t.gens()[0]
+
+
+# SHOULD MOVE THE BELOW to separate file
+#
+def get_x_from_Dx(D):
+    """ D is a generator in the rational Weyl algebra C[x0...xn]
+    returns the xi, such that D*xi = xi*D + 1.
+    """
+    candidates = [x for x in D.parent().base_ring().gens() if D * x == x * D + 1]
+    assert(len(candidates) == 1)
+
+    return candidates[0]
+    
+def get_Dx_from_x(x, W):
+    """ For x and a corresponding rational Weyl algebra over C[x0,...,xn]
+    returns the generator D of W satisfying D*x = x*D + 1.
+    """ 
+    candidates = [D for D in W.gens() if D * x == x * D + 1]
+    assert(len(candidates) == 1)
+
+    return candidates[0]
+
+import json
+import subprocess
+from datetime import datetime
+def get_picard_fuchs_julia(A, proj_var, debug_level=0):
+    """ Computes the picard fuchs operator for A using MultivariateCreativeTelescoping.jl.
+    """
+    W = rational_weyl_algebra(A.parent().ring())
+    Dt = get_Dx_from_x(proj_var, W)
+    t = get_x_from_Dx(Dt)
+
+    numerator = A.numerator()
+    one_over_denominator = A / numerator
+
+    ann = W.ideal([one_over_denominator*D-D(one_over_denominator) for D in W.gens()]) # construct the annihilating ideal
+
+    # Set up data for printing JSON file:
+    data = {
+    "order": "lex " + str(Dt) + " > grevlex " + " ".join([str(get_x_from_Dx(D)) for D in W.gens() if not D == Dt]) + " " + " ".join([str(D) for D in W.gens() if not D == Dt]),
+    "ratdiffvars": [[str(proj_var)], [str(Dt)]],
+    "poldiffvars": [[  str(get_x_from_Dx(D)) for D in W.gens() if not D == Dt], [ str(D) for D in W.gens() if not D == Dt]],
+    "ann": [str(P) for P in ann.gens()],
+    "numerator": str(numerator)
+    }
+
+    current_time = datetime.now() # TODO: Also should check if there already is a file with that time stamp...
+    date_prefix = current_time.strftime("%Y%m%d%H%M%S")
+    
+
+    # Get path of MCT_interface.jl (same as the path of the other src files)
+    # Q: Is there a better way?
+    MCT_path = os.path.join(os.path.dirname(tools.__file__), "MCT_interface.jl")
+    
+    # Make Julia tmp folder
+    julia_tmp_folder_name = "julia_tmp"
+    if not os.path.isdir(julia_tmp_folder_name):
+        os.mkdir(julia_tmp_folder_name)
+
+    # in and out file
+    MCT_infile_path = os.path.join(julia_tmp_folder_name, str(date_prefix) + "input.json")
+    MCT_outfile_path = os.path.join(julia_tmp_folder_name,  str(date_prefix) + "output.txt")
+
+    # Write the infile
+    with open(MCT_infile_path, "w") as f:
+        json.dump(data, f)
+
+
+    result = subprocess.run(
+    ["julia", "+1.10", MCT_path, MCT_infile_path, MCT_outfile_path],
+    # text=True,
+    # capture_output=True
+    )
+
+    # print("Return code:", result.returncode)
+    if result.returncode == 1:
+        print("Julia approach failed, retrying with the Chyzak in sage.")
+        annA = W.ideal([A*D-D(A) for D in W.gens()]) # construct the annihilating ideal
+        intIdeal = creative_telescoping(annA, proj_var, debug_level=debug_level)
+
+        return intIdeal.gens()[0]
+    
+
+    # print("STDOUT:")
+    # print(result.stdout)
+    # print("STDERR:")
+    # print(result.stderr)
+
+    with open(MCT_outfile_path, "r") as f:
+        PF_str = f.read().strip()
+
+    # Build the univariate rational WeylAlgebra
+    W_univar = rational_weyl_algebra(PolynomialRing(QQ, t).fraction_field())
+    # and output the PF operator
+    return W_univar(PF_str)
+#
+# SHOULD MOVE THE ABOVE
 
 
 def construct_integrand_t(fs, def_var_name, strategy=None, prim_var_name=None):
@@ -914,7 +1045,7 @@ def rational_weyl_algebra(polyRing):
 
     return OreAlgebra(fracField, *[("D" + str(var), {}, {var : polyRing(1)}) for var in polyRing.gens()])
 
-def creative_telescoping(I, proj_var, strategy=None, debug_level=0):
+def creative_telescoping(I, proj_var, strategy=None, debug_level=0, method="Chyzak"):
     """ Integrates out all but the variable proj_var from the R or D ideal I.
 
     The result is an ideal contained in:     (I + dx_1 * D + ...+ dx_n *D) \cap D_x0

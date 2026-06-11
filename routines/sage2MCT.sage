@@ -5,7 +5,27 @@
 # 
 #   Link to Hadrien Brochet's Julia package:
 
-load("routine.sage")
+
+#
+# Remark: Currently this needs to be run from within the src folder. Or pasted into a sage idle opened there.
+#
+
+
+
+######################
+
+# With installation:
+# import exact_convex_volumes
+
+# Without installation:
+from context import exact_convex_volumes
+
+# In any case:
+from exact_convex_volumes.volumes import *
+from exact_convex_volumes.tools import *
+from exact_convex_volumes.msolve_interface import *
+
+######################
 
 def get_x_from_Dx(D):
     """ D is a generator in the rational Weyl algebra C[x0...xn]
@@ -75,8 +95,6 @@ def set_up_MCT_julia_code(A, proj_var):
     print('LDE = MCT(parse_OrePoly("' + str(num) + '",W), gb, W)')
     
 
-    
-
 def example1():
     """ Code for 1 L4 ball centered at the origin.
     """
@@ -127,7 +145,53 @@ def example3():
 
     proj_var = At.parent().ring()(def_var_name)
 
-    set_up_MCT_julia_code(At,proj_var)
+    set_up_MCT_julia_code(At, proj_var)
+
+
+def twoL2inR4():
+    """ Intersection of two L2 balls in R4. """
+    n = 4
+    p = 2
+    R = PolynomialRing(QQ, "x", n)
+    x = R.gens()
+
+    fs = [shifted_lp_poly(R, p, [0,0,0,0]), shifted_lp_poly(R, p, [1,0,0,0])]
+    
+    def_var_name = "t"
+    At = construct_integrand_t(fs, def_var_name)
+
+    proj_var = At.parent().ring()(def_var_name)
+
+    set_up_MCT_julia_code(At, proj_var)
+
+    # Similarly for the deformations, set up the Julia code:
+    initial_points_t = [1/50, 1/40, 3/100]
+
+    proj_var = x[3]
+    for def_value in initial_points_t:
+        A = construct_integrand(fs, def_value, {}, proj_var)
+        print()
+        set_up_MCT_julia_code(A, proj_var)
+        print()
+
+def twoL4inR4():
+    n = 4
+    p = 4
+    R = PolynomialRing(QQ, "x", n)
+    x = R.gens()
+
+    fs = [shifted_lp_poly(R, p, [0,0,0,0]), shifted_lp_poly(R, p, [1,0,0,0])]
+    
+    def_var_name = "t"
+    At = construct_integrand_t(fs, def_var_name)
+
+    proj_var = At.parent().ring()(def_var_name)
+
+    set_up_MCT_julia_code(At, proj_var)
+
+
+
+
 
 if __name__ == "__main__":
-    example3()
+    twoL4inR4()
