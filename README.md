@@ -35,12 +35,12 @@ SageMath Packages
 - [ore_algebra](https://github.com/mkauers/ore_algebra/)
 
 External Software:
-- [Macaulay2](https://github.com/Macaulay2/M2/wiki)
 - [msolve](https://msolve.lip6.fr/downloads/msolve-tutorial.pdf)
 
 
 (Optional) Julia Package:
 - [HypersurfaceRegions.jl](https://github.com/JuliaAlgebra/HypersurfaceRegions.jl)
+- [MultivariateCreativeTelescoping.jl](https://github.com/HBrochet/MultivariateCreativeTelescoping.jl)
 
 
 ## Installation
@@ -54,6 +54,22 @@ To install our package, download this repository and then install it via
 ``sage -pip install <path-to-"exact_convex_volumes"-repo>``
 
 If you would like to avoid installing the package you can simply add the folder "src" to the sys.path.
+
+## Using MultivariateCreativeTelescoping.jl
+
+By default, our package use the implementation of creative telescoping (Chyzak's algorithm). However, we also added support for the more recent [MultivariateCreativeTelescoping.jl](https://github.com/HBrochet/MultivariateCreativeTelescoping.jl). For version dependency reasons, we require Julia 1.10, which you can simply add as a channel to your Julia installation with:
+
+```
+juliaup add 1.10
+```
+
+You can then start this specific version and add MCT.jl with:
+
+```
+julia +1.10
+using Pkg
+Pkg.add("MultivariateCreativeTelescoping")
+```
 
 ## Generate Docs
 
@@ -70,4 +86,5 @@ If you would like to browse the documentation to this package in an html page yo
       - [x] Store computed slice / deformed volumes
       - [ ] Resume computations
       - [ ] Recompute with increased precision without recomputing PF operators
+- [x] CT using [MultivariateCreativeTelescoping.jl](https://github.com/HBrochet/MultivariateCreativeTelescoping.jl)
 - [ ] Parallelization
