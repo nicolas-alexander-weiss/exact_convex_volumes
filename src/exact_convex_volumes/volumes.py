@@ -94,14 +94,9 @@ class SmoothVolume:
         [TODO] Allow for resumption of computation at later point.
 
         -- Refactoring into Objects:
-        [Done] Go through the below and make sure that it runs based on the input to the object.
         [TODO] Adapt the debug messages to reflect the structure of the paper in fact.
         [TODO] Make 1dim volume a method.
         [TODO] Consider making the other helper functions a method, too.
-
-        [Done] Make initial conditions SmoothVolume objects too. 
-            - First create dict of slice objects
-            - Then turn into dict of initial conditions
 
         [TODO] Allow for parallel computation of the slice volumes.
 
@@ -943,24 +938,15 @@ def get_picard_fuchs_julia(A, proj_var, debug_level=0):
 
 
     result = subprocess.run(
-    ["julia", "+1.10", MCT_path, MCT_infile_path, MCT_outfile_path],
-    # text=True,
-    # capture_output=True
+        ["julia", MCT_path, MCT_infile_path, MCT_outfile_path]
     )
 
-    # print("Return code:", result.returncode)
     if result.returncode == 1:
-        print("Julia approach failed, retrying with the Chyzak in sage.")
+        print("MCT.jl failed, retrying with ore_algebra package in sage.")
         annA = W.ideal([A*D-D(A) for D in W.gens()]) # construct the annihilating ideal
         intIdeal = creative_telescoping(annA, proj_var, debug_level=debug_level)
 
         return intIdeal.gens()[0]
-    
-
-    # print("STDOUT:")
-    # print(result.stdout)
-    # print("STDERR:")
-    # print(result.stderr)
 
     with open(MCT_outfile_path, "r") as f:
         PF_str = f.read().strip()
