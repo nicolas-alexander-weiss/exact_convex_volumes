@@ -4,11 +4,10 @@
 
 ## Description
 
-We provide a SageMath package to compute the exact volume of semi-algebraic convex bodies. The input consists of $k$ concave polynomials
+We provide a SageMath package to compute the exact volume of semi-algebraic convex bodies. The input consists of $k$ polynomials
 $`f_1,f_2,\ldots, f_k  \in  \mathbb{Q}[x_1,\ldots,x_n],`$
-where concave is defined by
-`` TODO definition.
-``
+that each define a _concave_ function on $`\mathbb{R}^n`$.
+
 The output is a (real/complex) ball of radius $`2^{-\text{prec}}`$ which contains the volume of the convex semi-algebraic set
 $`
 C = \left\{x \in \mathbb{R}^n \mid f_1(x) > 0\right\} \cap \ldots \cap \left\{x \in \mathbb{R}^n \mid f_k(x) > 0\right\}.
@@ -18,7 +17,7 @@ The computation of exact volumes of semi-algebraic convex bodies defined by fini
 
 This package implements the algorithms described in
 
-  [1] L. Ramesh, N. Weiss (2026): "Exact Volumes of Semi-Algebraic Convex Bodies", [arXiv:2602.04707](https://arxiv.org/abs/2602.04707).
+  [1] L. Ramesh, N. Weiss (2026): "Exact Volumes of Semi-Algebraic Convex Bodies", ISSAC'26: [doi.org/10.1145/3815436.3815478](https://doi.org/10.1145/3815436.3815478) [arXiv:2602.04707](https://arxiv.org/abs/2602.04707).
 
 which rests on work by [Lairez, Mezzarobba, and Safey El Din](http://dx.doi.org/10.1145/3326229.3326262).
 
