@@ -624,65 +624,8 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec
         # In this case we are computing points in the complement instead:
         print("Reverting to computing the relevant critical values using HypersurfaceRegions.jl")
 
-        fdef = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [def_value]), var_value_pairs)
-        
-        # Compute the polynomial defining the critical locus:
-        crit_val_ideal = m2.branchIdeal(fdef, proj_var)
-        if len(crit_val_ideal.gens()) != 1:
-            raise ValueError("Expected ideal of critical values to have only one generator. Instead got: {}".format(crit_val_ideal))
-        
-        # Extract the polynomial. Ideally, we should map it to the same ring as fdef, but this is not necessary here.
-        crit_val_poly = crit_val_ideal.gens()[0]
-        pot_crit_vals = crit_val_poly.roots(AA, multiplicities=False) 
-        
-        if debug_level > 0:
-            print("pot_crit_vals: ", pot_crit_vals)
+        return project_deformed_intersection_julia(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION, debug_level=0)
 
-        # Setting up the input to julia:
-        print("Please execute the below in Julia: ")
-        print("using HypersurfaceRegions")
-        print("@var " + " ".join([str(xi) for xi in fdef.parent().gens()]) + ";")
-        print("fdef = {};".format(str(fdef)))
-        print("critValPoly = {};".format(str(crit_val_poly)))
-        print("system = [fdef;critValPoly];")
-        print("regs = regions(system);")
-        #print('println("[")')
-        print('println("["); for region in regs.region_list\n  println(string(region.critical_points[1]) * ",")\nend; println("]")')
-        #print('println("]")')
-
-        # TODO: Should actually make sure the precision is high enough!
-        sampled_points = sage_eval(input("Please input the sampled points from Julia as one line:"))
-        
-        # Todo do with a join
-        sampled_points = [dict( zip(fdef.parent().gens(), pnt) )  for pnt in sampled_points]
-        
-        print("\nReceived the sampled points: {}".format(sampled_points))
-
-        # Identify the relevant critical values (in the roots of crit_val_poly)
-
-        # Check which of the sample points lie in our region: fdef > 0 and fi > 0 for all fi in fs:
-        inside_points = []
-        for point in sampled_points:
-            # TODO: Can also merge the pnt with the var_value_pairs instead of restricting the polynomials.
-            # TODO: var_value pairs have QQ values and the point has real values.
-            if all([tools.partial_eval_poly(fun, point | var_value_pairs ) > 0 for fun in [fdef] + fs]):
-                inside_points.append(point) 
-
-        if debug_level > 0:
-            print("The polys: ",[fdef] + fs)
-            print("Print inside_points: ", inside_points)
-        
-        minval_inside_points = min([pt[proj_var] for pt in inside_points])
-        maxval_inside_points = max([pt[proj_var] for pt in inside_points])
-
-        if debug_level > 0:
-            print("Min and max inside value:", minval_inside_points, maxval_inside_points)
-
-        relevant_crit_values_numerical = [ max([pt for pt in pot_crit_vals if pt < minval_inside_points]),
-                                 min([pt for pt in pot_crit_vals if pt > maxval_inside_points])
-        ]
-        
-        return [{proj_var:val} for val in relevant_crit_values_numerical]
 
     
 
@@ -955,6 +898,103 @@ def get_picard_fuchs_julia(A, proj_var, debug_level=0):
     W_univar = rational_weyl_algebra(PolynomialRing(QQ, t).fraction_field())
     # and output the PF operator
     return W_univar(PF_str)
+
+def project_deformed_intersection_julia(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION, debug_level=0):
+    """ Computes the critical values of the deformed intersection using an julia interface to HypersurfaceRegions.jl.
+    """
+
+    fdef = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [def_value]), var_value_pairs)
+    
+    # Compute the polynomial defining the critical locus:
+    crit_val_ideal = m2.branchIdeal(fdef, proj_var)
+    if len(crit_val_ideal.gens()) != 1:
+        raise ValueError("Expected ideal of critical values to have only one generator. Instead got: {}".format(crit_val_ideal))
+    
+    # Extract the polynomial. Ideally, we should map it to the same ring as fdef, but this is not necessary here.
+    crit_val_poly = crit_val_ideal.gens()[0]
+    pot_crit_vals = crit_val_poly.roots(AA, multiplicities=False) 
+    
+    if debug_level > 0:
+        print("pot_crit_vals: ", pot_crit_vals)
+
+
+    # Setting up the data used in HypersurfaceRegions.jl
+    data = {
+        "variables": [str(xi) for xi in fdef.parent().gens()],
+        "system": [str(fdef),str(crit_val_poly)]
+    }
+
+    current_time = datetime.now() # TODO: Also should check if there already is a file with that time stamp...
+    date_prefix = current_time.strftime("%Y%m%d%H%M%S")
+    
+
+    # Get path of MCT_interface.jl (same as the path of the other src files)
+    # Q: Is there a better way?
+    HSR_path = os.path.join(os.path.dirname(tools.__file__), "HSR_interface.jl")
+    
+    # Make Julia tmp folder
+    julia_tmp_folder_name = "julia_tmp"
+    if not os.path.isdir(julia_tmp_folder_name):
+        os.mkdir(julia_tmp_folder_name)
+
+    # in and out file
+    HSR_infile_path = os.path.join(julia_tmp_folder_name, str(date_prefix) + "HSR_input.json")
+    HSR_outfile_path = os.path.join(julia_tmp_folder_name,  str(date_prefix) + "HSR_output.txt")
+
+    # Write the infile
+    with open(HSR_infile_path, "w") as f:
+        json.dump(data, f)
+
+    # Execute the julia script.
+    result = subprocess.run(
+        ["julia", HSR_path, HSR_infile_path, HSR_outfile_path]
+    )
+
+    if result.returncode == 1:
+        raise RuntimeError("HypersurfaceRegions.jl failed. Please reach out to us so we can investigate the issue.")
+    
+    # TODO: Should actually make sure the precision is high enough!
+    with open(HSR_outfile_path, 'r') as f:
+        point_data = json.load(f)
+    
+    sampled_points = [[QQ(x) for x in point] for point in point_data]
+
+    # Match the sampled points to the variable names.
+    sampled_points = [dict( zip(fdef.parent().gens(), pnt) )  for pnt in sampled_points]
+
+
+    if debug_level>0 :
+        print("\nReceived the sampled points: {}".format(sampled_points))
+        
+    
+    # Identify the relevant critical values (in the roots of crit_val_poly)
+
+    
+    # Check which of the sample points lie in our region: fdef > 0 and fi > 0 for all fi in fs:
+    inside_points = []
+    for point in sampled_points:
+        # TODO: Can also merge the pnt with the var_value_pairs instead of restricting the polynomials.
+        # TODO: var_value pairs have QQ values and the point has real values.
+        if all([tools.partial_eval_poly(fun, point | var_value_pairs ) > 0 for fun in [fdef] + fs]):
+            inside_points.append(point) 
+
+    if debug_level > 0:
+        print("Print inside_points: ", inside_points)
+    
+    minval_inside_points = min([pt[proj_var] for pt in inside_points])
+    maxval_inside_points = max([pt[proj_var] for pt in inside_points])
+
+    if debug_level > 0:
+        print("Min and max inside value:", minval_inside_points, maxval_inside_points)
+
+    relevant_crit_values_numerical = [ max([pt for pt in pot_crit_vals if pt < minval_inside_points]),
+                                min([pt for pt in pot_crit_vals if pt > maxval_inside_points])
+    ]
+    
+    return [{proj_var:val} for val in relevant_crit_values_numerical]
+
+
+
 #
 # SHOULD MOVE THE ABOVE
 
