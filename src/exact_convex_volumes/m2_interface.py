@@ -15,7 +15,7 @@ from sage.all import (
 
 
 
-def eliminate(I, varNames):
+def eliminate(I, varNames, useM2=False):
     """
     Input
     -----
@@ -41,9 +41,13 @@ def eliminate(I, varNames):
     if not type(varNames) == str:
         raise TypeError("varNames excepted to be of type str")
 
-    m2ideal = macaulay2(I)
-    eliminatedIdeal = m2ideal.eliminate("{" + varNames + "}") 
-    return eliminatedIdeal.sage()
+    if useM2:
+        m2ideal = macaulay2(I)
+        eliminatedIdeal = m2ideal.eliminate("{" + varNames + "}") 
+        return eliminatedIdeal.sage()
+    else:
+        # Write code to do elimination in Sage.
+        return I.elimination_ideal([I.ring()(str(var_name.strip())) for var_name in varNames.split(",")])
 
 # TODO: If f lives in a ring of the form $QQ(t)[x0,...,x_n]$ we have to manually construct the M2 object.
 # TODO: It would be best to specifiy if we want to keep certain variables as parametric

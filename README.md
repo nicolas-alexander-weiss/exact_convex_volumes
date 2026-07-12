@@ -37,12 +37,12 @@ SageMath Packages
 - [ore_algebra](https://github.com/mkauers/ore_algebra/)
 
 External Software:
-- [Macaulay2](https://github.com/Macaulay2/M2/wiki)
 - [msolve](https://msolve.lip6.fr/downloads/msolve-tutorial.pdf)
 
 
 (Optional) Julia Package:
 - [HypersurfaceRegions.jl](https://github.com/JuliaAlgebra/HypersurfaceRegions.jl)
+- [MultivariateCreativeTelescoping.jl](https://github.com/HBrochet/MultivariateCreativeTelescoping.jl)
 
 
 ## Installation
@@ -57,6 +57,34 @@ To install our package, download this repository and then install it via
 
 If you would like to avoid installing the package you can simply add the folder "src" to the sys.path.
 
+## Using MultivariateCreativeTelescoping.jl
+
+By default, our package use the implementation of creative telescoping (Chyzak's algorithm). However, we also added support for the more recent [MultivariateCreativeTelescoping.jl](https://github.com/HBrochet/MultivariateCreativeTelescoping.jl). You can install it using:
+
+```
+julia
+using Pkg
+Pkg.add("MultivariateCreativeTelescoping")
+```
+
+To use it as the default creative telescoping algorithm in the computation, simply set the "use_julia_for_CT" parameter to True:
+
+```
+R =  PolynomialRing(QQ, "x", 2); x = R.gens()
+volume2([1- x[0]^2 - x[1]^2, 1 - (x[0]-1)^2 - x[1]^2], prec=200, use_julia_for_CT=True)
+```
+
+## Using HypersurfaceRegions.jl
+
+You can install it using:
+
+```
+julia
+using Pkg
+Pkg.add("HypersurfaceRegions.jl")
+```
+
+
 ## Generate Docs
 
 If you would like to browse the documentation to this package in an html page you can generate it with:
@@ -67,8 +95,10 @@ If you would like to browse the documentation to this package in an html page yo
 
 - [x] First complete implementation.
 - [ ] Generate the docs automatically and host online.
-- [ ] Volumes as objects: 
-      - [ ] Store computed PF operators
+- [x] Volumes as objects: 
+      - [x] Store computed PF operators
+      - [x] Store computed slice / deformed volumes
       - [ ] Resume computations
       - [ ] Recompute with increased precision without recomputing PF operators
+- [x] CT using [MultivariateCreativeTelescoping.jl](https://github.com/HBrochet/MultivariateCreativeTelescoping.jl)
 - [ ] Parallelization

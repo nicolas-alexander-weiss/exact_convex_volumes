@@ -11,6 +11,7 @@ from ore_algebra import OreAlgebra
 # Python Imports
 
 import numpy as np
+import os
 
 # Sage Imports
 
@@ -22,6 +23,370 @@ from sage.all import (
     vector, matrix,
     sage_eval
 )
+
+#
+# Volumes as objects:
+#
+
+class SmoothVolume:
+    """ SmoothVolume is the object which holds all intermediate results of the 
+    smooth volume computation. In particular, they usually hold all the parameters
+    with which the smooth volume function were computed.
+
+    Note that the previous functions are still available, but they are wrappers to the 
+    methods of the SmoothVolume class. Also, all helper functions such as for the computation
+    for the PF operators remain separate.
+
+    Features:
+    - [TODO] Resume computations when they were aborted.
+    - [TODO] Obtain insights into the computation afterwards
+    - [TODO] Allows for recomputation with increased precision.
+
+    Other:
+    - [TODO] Have suitable getter and setter functions?
+    - [TODO] Create test cases for the object oriented implementation.
+
+    """
+
+    def __init__(self, fs, def_value, var_value_pairs, prec, strategy=None, debug_level=0, use_julia_for_CT=False):
+        """
+        Docstring for __init__
+        
+        fs : list of multivariate polynomials over QQ
+        def_value : non-negative element in QQ
+        var_value_pairs : Dictionary with  variable:value   key-value-pairs, where value is in QQ.
+        prec : Number of binary digits of precision, i.e. an accuracy of 2^{-prec}.
+
+        strategy : dict (see volume computation for details)
+        debug_level : int (to regulate the amount of printed details.)
+        """
+        self.fs = fs
+        self.def_value = def_value
+        self.var_value_pairs = var_value_pairs
+
+        self.prec = prec
+        self.strategy = strategy
+        self.debug_level = debug_level
+
+        # Initialize data for the computation:
+        self.vol = None # in CBF(prec)
+        self.PF_slice_vol = None # To hold the computed PF operator which annihilates the slice volume.
+        self.proj_var = None # To hold the variable onto which we project in this step.
+        self.slice_volumes = None # dict indexed by elements of QQ with values SmoothVolume
+
+        # Store the Julia flag
+        self.use_julia_for_CT = use_julia_for_CT
+        
+    def get_fdef(self):
+        return tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(self.fs), [self.def_value]), self.var_value_pairs) 
+
+    def is_one_dim(self):
+        """
+        Returns true if only one free variable remains after 
+        fixing all values in self.var_value_pairs.
+        """
+        return self.get_fdef().parent().ngens() == 1
+
+
+    def start_computation(self):
+        """ Runs the computation based on the provided data.
+
+        [TODO] Allow for resumption of computation at later point.
+
+        -- Refactoring into Objects:
+        [TODO] Adapt the debug messages to reflect the structure of the paper in fact.
+        [TODO] Make 1dim volume a method.
+        [TODO] Consider making the other helper functions a method, too.
+
+        [TODO] Allow for parallel computation of the slice volumes.
+
+        """
+        # The evaluated polynomial
+        evaluated_poly = self.get_fdef()
+
+        if self.debug_level > 0:
+            print("[Vol1] Deformation value t: {}".format(self.def_value))
+            print("[Vol1] Slice taken at: {}".format(self.var_value_pairs))
+            print("[Vol1] Restricted deformed product: {}".format(evaluated_poly))
+
+        # Early exit if already univariate, then return 1-dim volume.
+        if len(evaluated_poly.parent().gens()) == 1:
+            if self.debug_level > 0:
+                print("[Vol1] The restricted polynomial is univariate, hence going into the 1-dim-volume routine.")
+            self.vol = get_1_dim_volume(self.fs, self.var_value_pairs, self.def_value, self.prec)
+            return
+
+        # Fix a projection variable (here just the first undetermined variable): 
+
+        if self.strategy == None:
+            self.proj_var = evaluated_poly.parent().gens()[0]
+        else:
+            self.proj_var = self.strategy["proj_var"](self.fs, self.def_value, self.var_value_pairs)
+
+        if self.debug_level > 0:
+            print("[Vol1] proj_var: {}".format(self.proj_var))
+
+        # Get the Picard-Fuchs operator and define the operator to be solved.
+        self.PF_slice_vol = get_picard_fuchs(self.fs, self.def_value, self.var_value_pairs, self.proj_var, self.strategy, debug_level=self.debug_level, use_julia_for_CT=self.use_julia_for_CT)
+        
+        Pdx = self.PF_slice_vol * self.PF_slice_vol.parent().gens()[0]
+
+        lead_coef = self.PF_slice_vol.leading_coefficient().numerator()
+        singular_locus = lead_coef.roots(AA, multiplicities=False) 
+
+        if self.debug_level > 0:
+            print("\n[Vol1] Order Pdx:", Pdx.order())
+            print("[Vol1] Leading coef:", Pdx.leading_coefficient())
+            print("[Vol1] Singular locus:", singular_locus)
+            if self.debug_level > 2:
+                print("[Vol1] Pdx = ", Pdx, "\n")
+
+        # Determine the branch points and corresponding critical values bounding the deformed set.
+        
+        # Numerical critical values:
+        relevant_crit_val = [pt[self.proj_var] for pt in project_deformed_intersection(self.fs, self.def_value, self.proj_var, self.var_value_pairs, self.prec)]
+        if self.debug_level > 0:
+            print("[Vol1] Relevant CritVals:", relevant_crit_val)
+
+        if len(relevant_crit_val) != 2:
+            raise ValueError("Computation returned too many (#={}) critical values: {}".format(len(relevant_crit_val), relevant_crit_val))
+        
+        min_crit_val = min(relevant_crit_val)
+        max_crit_val = max(relevant_crit_val)
+
+        # Set the interval in which we want to sample points, identify our branch points among
+        # TODO: Make sure that this uniquely identifies points of the singular locus.
+        xmin = singular_locus[np.argmin([np.abs(root - min_crit_val) for root in singular_locus])]
+        xmax = singular_locus[np.argmin([np.abs(root - max_crit_val) for root in singular_locus])]
+        
+        if self.debug_level > 0:
+            print("[Vol1] Identified the relevant critical values in the singular locus as: \nxmin = {}\nxmax = {}".format(xmin, xmax))
+
+        # apparent singularities (that are not singularities of our solution:)
+        xapparent = sorted([xi for xi in singular_locus if not xi in [xmin, xmax] and (xmin < xi) and (xi < xmax)])
+
+        if self.debug_level > 0:
+            print("[Vol1] Apparent singular points in the interval: ", xapparent)
+
+        # Determine points for initial data, such that transition matrix becomes invertible.
+        CBF = ComplexBallField(self.prec)
+        lower_bound = CBF(xmin).real()
+        upper_bound = CBF(min(xapparent)).real() if len(xapparent) > 0 else CBF(xmax).real()
+        initial_points = get_good_initial_points(self.PF_slice_vol, lower_bound, upper_bound, self.prec, debug_level=self.debug_level)
+        
+        if self.debug_level > 0:
+            print("[Vol1] Sampled initial points:", initial_points)
+
+
+        # Compute slice volumes first:
+        self.slice_volumes = {}
+        # # Set up slice volume objects
+        for pt_val in initial_points:
+            self.slice_volumes[pt_val] = SmoothVolume(self.fs, self.def_value, var_value_pairs=self.var_value_pairs | {self.proj_var:pt_val}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level, use_julia_for_CT=self.use_julia_for_CT)
+        # # Start slice volume computation (potentially in parallel)
+        for pt_val, volObj in self.slice_volumes.items():
+            volObj.start_computation()
+
+        # Construct initial conditions dict:
+        # {"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
+        self.initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":self.slice_volumes[proj_var_val].get_volume()} for proj_var_val in initial_points}
+        
+        if self.debug_level > 0:
+            print("[Vol1] Initial conditions", self.initial_conditions)
+
+        evaluation_condition = {"pt":xmax, "exponent":0}
+
+        if self.debug_level > 0:
+            print("[Vol1] Eval condition: ", evaluation_condition)
+
+        # Solve the initial value problem
+        self.vol = solve_diff_op(Pdx, self.initial_conditions, evaluation_condition, self.prec, xapparent, debug_level=self.debug_level)
+
+    def get_volume(self):
+        """
+        Returns the volume of the smooth semi-algebraic set defined by
+        {prod(fs)-def_val>0} \cap C \cap {var_value_pairs}.
+        """
+        if self.vol == None:
+            self.start_computation()
+        
+        return self.vol
+    
+    def __repr__(self):
+        """Returns a representation of the str."""
+        if self.vol == None:
+            return "SmoothVolume: None (use .get_volume() or .start_computation() to initiate computation)."
+            
+        return "SmoothVolume: " + str(self.vol)
+
+
+def last_variable_proj_var_strategy(fs, deform_value, var_value_pairs):
+    evaluated_poly = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [deform_value]), var_value_pairs)
+
+    return evaluated_poly.parent().gens()[-1]
+
+
+class Volume:
+    """ Class wrapper for the computation of volume of semi-algebraic convex bodies.
+
+    Assumes that convex body is then given as
+        C = {x in RR^n | f(x) > 0 for all f in fs}
+    where 
+        f is concave, for all f in fs.
+
+
+    Features:
+    ------
+    - [TODO]: Ensure that precision is really the output precision.
+
+    Implementation;
+    ------
+    [TODO] Copy structure similar to SmoothVolume
+    
+    [TODO] Create test cases for the object oriented implementation.
+
+    """
+    
+    def __init__(self, fs, prec, strategy=None, debug_level=0, use_julia_for_CT=False):
+        """
+        Docstring for __init__
+        
+        Parameters
+        ----------
+        fs : list of polys in QQ[x_1,..., x_n]
+            Concave polynomials defining the convex body.
+        prec : int
+            Number of binary digits of precision.
+        strategy : dict, optional
+            A dictionary providing strategies, such as order of projections.
+        debug_level : int, optional
+            Amount of intermediate results to be printed.
+        """
+        self.fs = fs
+
+        self.prec = prec
+        self.strategy = strategy
+        self.debug_level = debug_level
+
+        # Initialize data for the computation:
+        self.vol = None # in CBF(prec)
+        self.PF_deform_vol = None # To hold the computed PF operator which annihilates Vol(C_t) (i.e. the volume of the deformed set).
+        self.deformed_volumes = None # dict indexed by elements of QQ with values SmoothVolume
+
+        # Set the julia flag
+        self.use_julia_for_CT = use_julia_for_CT
+        
+    def get_fdef(self):
+        return tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(self.fs), [self.def_value]), self.var_value_pairs) 
+
+    def is_one_dim(self):
+        """
+        Returns true if only one free variable remains after 
+        fixing all values in self.var_value_pairs.
+        """
+        return self.get_fdef().parent().ngens() == 1
+
+
+    def start_computation(self, parallel=False):
+        """ Runs the computation based on the provided data.
+
+        [TODO] Allow for resumption of computation at later point.
+
+        -- Refactoring into Objects:
+        [Done] Go through the below and make sure that it runs based on the input to the object.
+        [TODO] Adapt the debug messages to reflect the structure of the paper in fact.
+        [TODO] Make 1dim volume a method.
+        [TODO] Consider making the other helper functions a method, too.
+
+        [Done] Make initial conditions SmoothVolume objects too. 
+            - First create dict of slice objects
+            - Then turn into dict of initial conditions
+
+        [TODO] Allow for parallel computation of the slice volumes.
+
+
+        [TODO] If only one function provided return smooth volume object. (do this in __init__())
+        [TODO] Move the assertions to init.
+        
+        """
+        if self.debug_level > 0:
+            print("[Vol2] Start of volume2:")
+            print("[Vol2] fs = {}".format(self.fs))
+
+        # Early exit, if only 1 function:
+        if len(self.fs) == 1:
+            self.vol = volume1(self.fs,0, {}, self.prec, self.strategy)
+
+        # TODO: Assertions (move to __init__)
+        assert(tools.all_from_same_parent_ring(self.fs))
+
+        # Get Picard Fuchs
+        self.PF_deform_vol = get_picard_fuchs_t(self.fs, self.strategy, debug_level=self.debug_level, use_julia_for_CT = self.use_julia_for_CT)
+        t = self.PF_deform_vol.parent().base_ring().gens()[0]
+
+        if self.debug_level > 0:
+            print("[Vol2] Pt = ".format(self.PF_deform_vol))
+            print("[Vol2] order(Pt) = {}".format(self.PF_deform_vol.order()))
+
+
+        # Choose initial points between 0 and the smallest singular point larger than 0.
+        lead_coef = self.PF_deform_vol.leading_coefficient().numerator()
+        sols = msolve.variety_msolve([lead_coef], self.prec)    # Compute real solutions with msolve
+        
+        singular_locus = [sol[t] for sol in sols]
+
+        if self.debug_level > 0:
+            print("[Vol2] Lead coef = {}".format(lead_coef))
+            print("[Vol2] Singular Locus = {}".format(singular_locus))
+
+        assert(0 in singular_locus)
+        index_zero = sorted(singular_locus).index(0)
+        
+        smallest_positive_singular_point = sorted(singular_locus)[index_zero + 1] if index_zero + 1 < len(singular_locus) else QQ(1/10)
+
+        CBF = ComplexBallField(self.prec)
+        initial_points = get_good_initial_points(self.PF_deform_vol, 0, CBF(smallest_positive_singular_point).real(), self.prec)
+
+        if self.debug_level > 0:
+            print("[Vol2] Initial points for Pt: {}".format(initial_points))
+
+        # Compute deformed volumes first: (volumes of the t slices)
+        self.deformed_volumes = {}
+        for t_val in initial_points:
+            self.deformed_volumes[t_val] = SmoothVolume(self.fs, t_val, var_value_pairs={}, prec=self.prec, strategy=self.strategy, debug_level=self.debug_level, use_julia_for_CT=self.use_julia_for_CT)
+        # # Start computation
+        for t_val, smoothVolObj in self.deformed_volumes.items():
+            smoothVolObj.start_computation()
+
+        # Set up initial conditions
+        initial_conditions = {t_val:{"exponent":0, "coef":self.deformed_volumes[t_val].get_volume()} for t_val in initial_points}
+
+        if self.debug_level > 0:
+            print("[Vol2] Initial conditions for Pt: {}".format(initial_conditions))
+
+        # Set evaluation condition at 0
+        evaluation_condition = {"pt":0, "exponent":0}
+
+        # Solve the initial value problem
+        self.vol = solve_diff_op(self.PF_deform_vol, initial_conditions, evaluation_condition, self.prec, [])
+    
+    def get_volume(self):
+        """
+        Returns the volume of the semi-algebraic set defined by
+        C = {x in RR^n | f(x) > 0 for all f in fs}.
+        """
+        if self.vol == None:
+            self.start_computation()
+        
+        return self.vol
+    
+    def __repr__(self):
+        """Returns a representation of the Volume object."""
+        if self.vol == None:
+            return "Volume: None (use .get_volume() or .start_computation() to initiate computation)."
+            
+        return "Volume: " + str(self.vol)
+
 
 # Custom exceptions:
 
@@ -259,70 +624,13 @@ def project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec
         # In this case we are computing points in the complement instead:
         print("Reverting to computing the relevant critical values using HypersurfaceRegions.jl")
 
-        fdef = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [def_value]), var_value_pairs)
-        
-        # Compute the polynomial defining the critical locus:
-        crit_val_ideal = m2.branchIdeal(fdef, proj_var)
-        if len(crit_val_ideal.gens()) != 1:
-            raise ValueError("Expected ideal of critical values to have only one generator. Instead got: {}".format(crit_val_ideal))
-        
-        # Extract the polynomial. Ideally, we should map it to the same ring as fdef, but this is not necessary here.
-        crit_val_poly = crit_val_ideal.gens()[0]
-        pot_crit_vals = crit_val_poly.roots(AA, multiplicities=False) 
-        
-        if debug_level > 0:
-            print("pot_crit_vals: ", pot_crit_vals)
+        return project_deformed_intersection_julia(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION, debug_level=0)
 
-        # Setting up the input to julia:
-        print("Please execute the below in Julia: ")
-        print("using HypersurfaceRegions")
-        print("@var " + " ".join([str(xi) for xi in fdef.parent().gens()]) + ";")
-        print("fdef = {};".format(str(fdef)))
-        print("critValPoly = {};".format(str(crit_val_poly)))
-        print("system = [fdef;critValPoly];")
-        print("regs = regions(system);")
-        #print('println("[")')
-        print('println("["); for region in regs.region_list\n  println(string(region.critical_points[1]) * ",")\nend; println("]")')
-        #print('println("]")')
-
-        # TODO: Should actually make sure the precision is high enough!
-        sampled_points = sage_eval(input("Please input the sampled points from Julia as one line:"))
-        
-        # Todo do with a join
-        sampled_points = [dict( zip(fdef.parent().gens(), pnt) )  for pnt in sampled_points]
-        
-        print("\nReceived the sampled points: {}".format(sampled_points))
-
-        # Identify the relevant critical values (in the roots of crit_val_poly)
-
-        # Check which of the sample points lie in our region: fdef > 0 and fi > 0 for all fi in fs:
-        inside_points = []
-        for point in sampled_points:
-            # TODO: Can also merge the pnt with the var_value_pairs instead of restricting the polynomials.
-            # TODO: var_value pairs have QQ values and the point has real values.
-            if all([tools.partial_eval_poly(fun, point | var_value_pairs ) > 0 for fun in [fdef] + fs]):
-                inside_points.append(point) 
-
-        if debug_level > 0:
-            print("The polys: ",[fdef] + fs)
-            print("Print inside_points: ", inside_points)
-        
-        minval_inside_points = min([pt[proj_var] for pt in inside_points])
-        maxval_inside_points = max([pt[proj_var] for pt in inside_points])
-
-        if debug_level > 0:
-            print("Min and max inside value:", minval_inside_points, maxval_inside_points)
-
-        relevant_crit_values_numerical = [ max([pt for pt in pot_crit_vals if pt < minval_inside_points]),
-                                 min([pt for pt in pot_crit_vals if pt > maxval_inside_points])
-        ]
-        
-        return [{proj_var:val} for val in relevant_crit_values_numerical]
 
     
 
 
-def get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy=None, debug_level=0):
+def get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy=None, debug_level=0, use_julia_for_CT=False):
     """ Computes the Picard Fuchs operator for 
     Vol(proj_var) = Vol( p^{-1}(proj_var) \cap {fs \geq 0 forall s} \cap slice(var_value_pairs)).
 
@@ -353,8 +661,12 @@ def get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy=None, de
 
     # Construct the integrand
     A = construct_integrand(fs, def_value, var_value_pairs, proj_var, debug_level=debug_level)
-    
     W = rational_weyl_algebra(A.parent().ring())
+
+    if use_julia_for_CT:
+        if debug_level > 0:
+            print("[CT] Entering julia for MCT.jl")
+        return get_picard_fuchs_julia(A, W(str(proj_var)))
 
     annA = W.ideal([A*D-D(A) for D in W.gens()]) # construct the annihilating ideal
 
@@ -452,7 +764,7 @@ def construct_integrand(fs, def_value, var_value_pairs, proj_var, prim_var_name=
     return A
 
 
-def get_picard_fuchs_t(fs, strategy=None, debug_level=0):
+def get_picard_fuchs_t(fs, strategy=None, debug_level=0, use_julia_for_CT=False):
     """ Computes the Picard Fuchs operator for Vol(Ct).
 
     The functions in t>0 
@@ -486,6 +798,13 @@ def get_picard_fuchs_t(fs, strategy=None, debug_level=0):
 
     Wt = rational_weyl_algebra(At.parent().ring())
 
+    if use_julia_for_CT:
+        if debug_level > 0:
+            print("[CT] Entering julia for MCT.jl")
+
+        return get_picard_fuchs_julia(At, Wt(def_var_name), debug_level=debug_level)
+
+
     annAt = Wt.ideal([At*D-D(At) for D in Wt.gens()]) # construct the annihilating ideal
 
     # To be precise, below we simply construct some subset of the integration ideal, 
@@ -493,6 +812,191 @@ def get_picard_fuchs_t(fs, strategy=None, debug_level=0):
     intIdeal_t = creative_telescoping(annAt, At.parent().ring()(def_var_name), debug_level=debug_level)
 
     return intIdeal_t.gens()[0]
+
+
+# SHOULD MOVE THE BELOW to separate file
+#
+def get_x_from_Dx(D):
+    """ D is a generator in the rational Weyl algebra C[x0...xn]
+    returns the xi, such that D*xi = xi*D + 1.
+    """
+    candidates = [x for x in D.parent().base_ring().gens() if D * x == x * D + 1]
+    assert(len(candidates) == 1)
+
+    return candidates[0]
+    
+def get_Dx_from_x(x, W):
+    """ For x and a corresponding rational Weyl algebra over C[x0,...,xn]
+    returns the generator D of W satisfying D*x = x*D + 1.
+    """ 
+    candidates = [D for D in W.gens() if D * x == x * D + 1]
+    assert(len(candidates) == 1)
+
+    return candidates[0]
+
+import json
+import subprocess
+from datetime import datetime
+def get_picard_fuchs_julia(A, proj_var, debug_level=0):
+    """ Computes the picard fuchs operator for A using MultivariateCreativeTelescoping.jl.
+    """
+    W = rational_weyl_algebra(A.parent().ring())
+    Dt = get_Dx_from_x(proj_var, W)
+    t = get_x_from_Dx(Dt)
+
+    numerator = A.numerator()
+    one_over_denominator = A / numerator
+
+    ann = W.ideal([one_over_denominator*D-D(one_over_denominator) for D in W.gens()]) # construct the annihilating ideal
+
+    # Set up data for printing JSON file:
+    data = {
+    "order": "lex " + str(Dt) + " > grevlex " + " ".join([str(get_x_from_Dx(D)) for D in W.gens() if not D == Dt]) + " " + " ".join([str(D) for D in W.gens() if not D == Dt]),
+    "ratdiffvars": [[str(proj_var)], [str(Dt)]],
+    "poldiffvars": [[  str(get_x_from_Dx(D)) for D in W.gens() if not D == Dt], [ str(D) for D in W.gens() if not D == Dt]],
+    "ann": [str(P) for P in ann.gens()],
+    "numerator": str(numerator)
+    }
+
+    current_time = datetime.now() # TODO: Also should check if there already is a file with that time stamp...
+    date_prefix = current_time.strftime("%Y%m%d%H%M%S")
+    
+
+    # Get path of MCT_interface.jl (same as the path of the other src files)
+    # Q: Is there a better way?
+    MCT_path = os.path.join(os.path.dirname(tools.__file__), "MCT_interface.jl")
+    
+    # Make Julia tmp folder
+    julia_tmp_folder_name = "julia_tmp"
+    if not os.path.isdir(julia_tmp_folder_name):
+        os.mkdir(julia_tmp_folder_name)
+
+    # in and out file
+    MCT_infile_path = os.path.join(julia_tmp_folder_name, str(date_prefix) + "input.json")
+    MCT_outfile_path = os.path.join(julia_tmp_folder_name,  str(date_prefix) + "output.txt")
+
+    # Write the infile
+    with open(MCT_infile_path, "w") as f:
+        json.dump(data, f)
+
+
+    result = subprocess.run(
+        ["julia", MCT_path, MCT_infile_path, MCT_outfile_path]
+    )
+
+    if result.returncode == 1:
+        print("MCT.jl failed, retrying with ore_algebra package in sage.")
+        annA = W.ideal([A*D-D(A) for D in W.gens()]) # construct the annihilating ideal
+        intIdeal = creative_telescoping(annA, proj_var, debug_level=debug_level)
+
+        return intIdeal.gens()[0]
+
+    with open(MCT_outfile_path, "r") as f:
+        PF_str = f.read().strip()
+
+    # Build the univariate rational WeylAlgebra
+    W_univar = rational_weyl_algebra(PolynomialRing(QQ, t).fraction_field())
+    # and output the PF operator
+    return W_univar(PF_str)
+
+def project_deformed_intersection_julia(fs, def_value, proj_var, var_value_pairs, prec=NUM_BITS_PRECISION, debug_level=0):
+    """ Computes the critical values of the deformed intersection using an julia interface to HypersurfaceRegions.jl.
+    """
+
+    fdef = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [def_value]), var_value_pairs)
+    
+    # Compute the polynomial defining the critical locus:
+    crit_val_ideal = m2.branchIdeal(fdef, proj_var)
+    if len(crit_val_ideal.gens()) != 1:
+        raise ValueError("Expected ideal of critical values to have only one generator. Instead got: {}".format(crit_val_ideal))
+    
+    # Extract the polynomial. Ideally, we should map it to the same ring as fdef, but this is not necessary here.
+    crit_val_poly = crit_val_ideal.gens()[0]
+    pot_crit_vals = crit_val_poly.roots(AA, multiplicities=False) 
+    
+    if debug_level > 0:
+        print("pot_crit_vals: ", pot_crit_vals)
+
+
+    # Setting up the data used in HypersurfaceRegions.jl
+    data = {
+        "variables": [str(xi) for xi in fdef.parent().gens()],
+        "system": [str(fdef),str(crit_val_poly)]
+    }
+
+    current_time = datetime.now() # TODO: Also should check if there already is a file with that time stamp...
+    date_prefix = current_time.strftime("%Y%m%d%H%M%S")
+    
+
+    # Get path of MCT_interface.jl (same as the path of the other src files)
+    # Q: Is there a better way?
+    HSR_path = os.path.join(os.path.dirname(tools.__file__), "HSR_interface.jl")
+    
+    # Make Julia tmp folder
+    julia_tmp_folder_name = "julia_tmp"
+    if not os.path.isdir(julia_tmp_folder_name):
+        os.mkdir(julia_tmp_folder_name)
+
+    # in and out file
+    HSR_infile_path = os.path.join(julia_tmp_folder_name, str(date_prefix) + "HSR_input.json")
+    HSR_outfile_path = os.path.join(julia_tmp_folder_name,  str(date_prefix) + "HSR_output.txt")
+
+    # Write the infile
+    with open(HSR_infile_path, "w") as f:
+        json.dump(data, f)
+
+    # Execute the julia script.
+    result = subprocess.run(
+        ["julia", HSR_path, HSR_infile_path, HSR_outfile_path]
+    )
+
+    if result.returncode == 1:
+        raise RuntimeError("HypersurfaceRegions.jl failed. Please reach out to us so we can investigate the issue.")
+    
+    # TODO: Should actually make sure the precision is high enough!
+    with open(HSR_outfile_path, 'r') as f:
+        point_data = json.load(f)
+    
+    sampled_points = [[QQ(x) for x in point] for point in point_data]
+
+    # Match the sampled points to the variable names.
+    sampled_points = [dict( zip(fdef.parent().gens(), pnt) )  for pnt in sampled_points]
+
+
+    if debug_level>0 :
+        print("\nReceived the sampled points: {}".format(sampled_points))
+        
+    
+    # Identify the relevant critical values (in the roots of crit_val_poly)
+
+    
+    # Check which of the sample points lie in our region: fdef > 0 and fi > 0 for all fi in fs:
+    inside_points = []
+    for point in sampled_points:
+        # TODO: Can also merge the pnt with the var_value_pairs instead of restricting the polynomials.
+        # TODO: var_value pairs have QQ values and the point has real values.
+        if all([tools.partial_eval_poly(fun, point | var_value_pairs ) > 0 for fun in [fdef] + fs]):
+            inside_points.append(point) 
+
+    if debug_level > 0:
+        print("Print inside_points: ", inside_points)
+    
+    minval_inside_points = min([pt[proj_var] for pt in inside_points])
+    maxval_inside_points = max([pt[proj_var] for pt in inside_points])
+
+    if debug_level > 0:
+        print("Min and max inside value:", minval_inside_points, maxval_inside_points)
+
+    relevant_crit_values_numerical = [ max([pt for pt in pot_crit_vals if pt < minval_inside_points]),
+                                min([pt for pt in pot_crit_vals if pt > maxval_inside_points])
+    ]
+    
+    return [{proj_var:val} for val in relevant_crit_values_numerical]
+
+
+
+#
+# SHOULD MOVE THE ABOVE
 
 
 def construct_integrand_t(fs, def_var_name, strategy=None, prim_var_name=None):
@@ -695,7 +1199,7 @@ def solve_diff_op(P, initial_conditions, evaluation_condition, prec, apparent_si
     # Read of the coefficient that we wanted to evaluate at:
     return eval_point_coefs[P.local_basis_monomials(eval_point).index((t-eval_point)**evaluation_condition["exponent"])]
 
-def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=None, debug_level=0):
+def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=None, debug_level=0, use_julia_for_CT=False):
     """ Computes the volume of the smooth deformations of semi-algebraic convex bodies.
 
     Assumes that convex body is given as
@@ -736,6 +1240,12 @@ def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=No
 
     Concavity is NOT explicitly checked for.
     
+    Remark
+    ------
+    This is a wrapper for the SmoothVolume class.
+    It constructs a SmoothVolume object here and return output of get_volume().
+
+
     TODOs
     ------
     [TODO] Check that the initial points are actually good before evaluating (or add option to do so.)
@@ -743,96 +1253,10 @@ def volume1(fs, def_value, var_value_pairs, prec=NUM_BITS_PRECISION, strategy=No
     [TODO] Parallelize computation of slices.
     """
 
-    # The evaluated polynomial
-    evaluated_poly = tools.partial_eval_poly(tools.eval_poly(tools.deformed_product(fs), [def_value]), var_value_pairs)
-    if debug_level > 0:
-        print("[Vol1] Deformation value t: {}".format(def_value))
-        print("[Vol1] Slice taken at: {}".format(var_value_pairs))
-        print("[Vol1] Restricted deformed product: {}".format(evaluated_poly))
-
-    # Early exit if already univariate, then return 1-dim volume.
-    if len(evaluated_poly.parent().gens()) == 1:
-        if debug_level > 0:
-            print("[Vol1] The restricted polynomial is univariate, hence going into the 1-dim-volume routine.")
-        return get_1_dim_volume(fs, var_value_pairs, def_value, prec)
-
-    # Fix a projection variable (here just the first undetermined variable): 
-
-    if strategy == None:
-        proj_var = evaluated_poly.parent().gens()[0]
-    else:
-        proj_var = strategy["proj_var"](fs, def_value, var_value_pairs)
-
-    if debug_level > 0:
-        print("[Vol1] proj_var: {}".format(proj_var))
-
-    # Get the Picard-Fuchs operator and define the operator to be solved.
-    P = get_picard_fuchs(fs, def_value, var_value_pairs, proj_var, strategy, debug_level=debug_level)
-    Pdx = P * P.parent().gens()[0]
-
-    lead_coef = P.leading_coefficient().numerator()
-    singular_locus = lead_coef.roots(AA, multiplicities=False) 
-
-    if debug_level > 0:
-        print("\n[Vol1] Order Pdx:", Pdx.order())
-        print("[Vol1] Leading coef:", Pdx.leading_coefficient())
-        print("[Vol1] Singular locus:", singular_locus)
-        if debug_level > 2:
-            print("[Vol1] Pdx = ", Pdx, "\n")
-
-    # Determine the branch points and corresponding critical values bounding the deformed set.
-    
-    # Numerical critical values:
-    relevant_crit_val = [pt[proj_var] for pt in project_deformed_intersection(fs, def_value, proj_var, var_value_pairs, prec)]
-    if debug_level > 0:
-        print("[Vol1] Relevant CritVals:", relevant_crit_val)
-
-    if len(relevant_crit_val) != 2:
-        raise ValueError("Computation returned too many (#={}) critical values: {}".format(len(relevant_crit_val), relevant_crit_val))
-    
-    min_crit_val = min(relevant_crit_val)
-    max_crit_val = max(relevant_crit_val)
-
-    # Set the interval in which we want to sample points, identify our branch points among
-    # TODO: Make sure that this uniquely identifies points of the singular locus.
-    xmin = singular_locus[np.argmin([np.abs(root - min_crit_val) for root in singular_locus])]
-    xmax = singular_locus[np.argmin([np.abs(root - max_crit_val) for root in singular_locus])]
-    
-    if debug_level > 0:
-        print("[Vol1] Identified the relevant critical values in the singular locus as: \nxmin = {}\nxmax = {}".format(xmin, xmax))
-
-    # apparent singularities (that are not singularities of our solution:)
-    xapparent = sorted([xi for xi in singular_locus if not xi in [xmin, xmax] and (xmin < xi) and (xi < xmax)])
-
-    if debug_level > 0:
-        print("[Vol1] Apparent singular points in the interval: ", xapparent)
-
-    # Determine points for initial data, such that transition matrix becomes invertible.
-    CBF = ComplexBallField(prec)
-    lower_bound = CBF(xmin).real()
-    upper_bound = CBF(min(xapparent)).real() if len(xapparent) > 0 else CBF(xmax).real()
-    initial_points = get_good_initial_points(P, lower_bound, upper_bound, prec, debug_level=debug_level)
-    
-    if debug_level > 0:
-        print("[Vol1] Sampled initial points:", initial_points)
-
-    # Determine initial conditions (TODO: in parallel)
-    #{"pt":0, "exponent":0} { x_val_1:{"exponent":mon, "coef":coef }, x_val_2:...}
-    initial_conditions = {xmin:{"exponent":0, "coef":0}} | {proj_var_val:{"exponent":1, "coef":volume1(fs, def_value, var_value_pairs=var_value_pairs | {proj_var:proj_var_val}, prec=prec, strategy=strategy, debug_level=debug_level)} for proj_var_val in initial_points}
-    
-    if debug_level > 0:
-        print("[Vol1] Initial conditions", initial_conditions)
-
-    evaluation_condition = {"pt":xmax, "exponent":0}
-
-    if debug_level > 0:
-        print("[Vol1] Eval condition: ", evaluation_condition)
-
-    # Solve the initial value problem
-    volume = solve_diff_op(Pdx, initial_conditions, evaluation_condition, prec, xapparent, debug_level=debug_level)
+    volObject = SmoothVolume(fs=fs,def_value=def_value,var_value_pairs=var_value_pairs,prec=prec, strategy=strategy,debug_level=debug_level, use_julia_for_CT=use_julia_for_CT)
 
     # Return the volume
-    return volume
+    return volObject.get_volume()
 
 
 def get_good_initial_points(P, x0, x1, prec, debug_level=0):
@@ -924,7 +1348,7 @@ def sample_n_rational_points(x0,x1,n, base=10, debug_level=0):
 
     return q
 
-def volume2(fs, prec, strategy=None, debug_level=0):
+def volume2(fs, prec, strategy=None, debug_level=0, use_julia_for_CT=False):
     """ Computes the volume of semi-algebraic convex bodies.
 
     Assumes that convex body is then given as
@@ -954,61 +1378,9 @@ def volume2(fs, prec, strategy=None, debug_level=0):
     Concavity is NOT explicitly checked for.
     """
 
-    if debug_level > 0:
-        print("[Vol2] Start of volume2:")
-        print("[Vol2] fs = {}".format(fs))
+    volObj = Volume(fs=fs, prec=prec, strategy=strategy, debug_level=debug_level, use_julia_for_CT=use_julia_for_CT)
 
-    # Early exit, if only 1 function:
-    if len(fs) == 1:
-        return volume1(fs,0, {}, prec, strategy)
-
-    # TODO: Assertions
-    assert(tools.all_from_same_parent_ring(fs))
-
-    # Get Picard Fuchs
-    Pt = get_picard_fuchs_t(fs, strategy, debug_level=debug_level)
-    t = Pt.parent().base_ring().gens()[0]
-
-    if debug_level > 0:
-        print("[Vol2] Pt = ".format(Pt))
-        print("[Vol2] order(Pt) = {}".format(Pt.order()))
-
-
-    # Choose initial points between 0 and the smallest singular point larger than 0.
-    lead_coef = Pt.leading_coefficient().numerator()
-    sols = msolve.variety_msolve([lead_coef], prec)    # Compute real solutions with msolve
-    
-    # TODO: Define t here. Why does this work without?
-    singular_locus = [sol[t] for sol in sols]
-
-    if debug_level > 0:
-        print("[Vol2] Lead coef = {}".format(lead_coef))
-        print("[Vol2] Singular Locus = {}".format(singular_locus))
-
-    assert(0 in singular_locus)
-    index_zero = sorted(singular_locus).index(0)
-    
-    smallest_positive_singular_point = sorted(singular_locus)[index_zero + 1] if index_zero + 1 < len(singular_locus) else QQ(1/10)
-
-    CBF = ComplexBallField(prec)
-    initial_points = get_good_initial_points(Pt, 0, CBF(smallest_positive_singular_point).real(), prec)
-
-    if debug_level > 0:
-        print("[Vol2] Initial points for Pt: {}".format(initial_points))
-
-    # Compute initial conditions (volumes of the t slices)
-    initial_conditions = {ti:{"exponent":0, "coef":volume1(fs, ti, var_value_pairs={}, prec=prec, strategy=strategy, debug_level=debug_level)} for ti in initial_points}
-
-    if debug_level > 0:
-        print("[Vol2] Initial conditions for Pt: {}".format(initial_conditions))
-
-    # Set evaluation condition at 0
-    evaluation_condition = {"pt":0, "exponent":0}
-
-    # Solve the initial value problem
-    volume = solve_diff_op(Pt, initial_conditions, evaluation_condition, prec, [])
-    
-    return volume
+    return volObj.get_volume()
 
 
 def vol_lp_ball_closed_formula(n,p,r, prec, use_complex=True):
